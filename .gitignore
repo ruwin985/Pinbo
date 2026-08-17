@@ -1,0 +1,24 @@
+# macOS
+.DS_Store
+
+# Xcode
+build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+*.xcscmblueprint
+*.xccheckout
+
+# XcodeGen 生成的工程（由 project.yml 生成，可选忽略）
+# Pinbo.xcodeproj/
+
+# Swift Package Manager
+.build/
+.swiftpm/
+
+# 其他
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
