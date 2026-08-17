@@ -19,6 +19,7 @@ final class EditorViewController: UIViewController {
     private var timeObserver: Any?
     private var itemStatusObservation: NSKeyValueObservation?
     private let subtitleOverlay = UILabel()
+    private let screenCaptureOverlay = UIView()
 
     // 顶部
     private let topBar = UIStackView()
@@ -63,11 +64,18 @@ final class EditorViewController: UIViewController {
         navigationController?.setNavigationBarHidden(true, animated: false)
         setupUI()
         setupPlayer()
+        observeScreenCaptureChanges()
         generateThumbnails()
     }
 
     deinit {
         if let timeObserver { player?.removeTimeObserver(timeObserver) }
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        updateScreenCaptureOverlayVisibility()
     }
 
     override var prefersStatusBarHidden: Bool { isFullscreen }
@@ -150,8 +158,11 @@ final class EditorViewController: UIViewController {
         activity.color = .white
         activity.hidesWhenStopped = true
 
+        setupScreenCaptureOverlay()
+
         [topBar, subtitleHintLabel, previewContainer, controlRow, timeline, activity].forEach { view.addSubview($0) }
         previewContainer.addSubview(subtitleOverlay)
+        view.addSubview(screenCaptureOverlay)
 
         topBar.snp.makeConstraints { make in
             make.top.equalTo(view.safeAreaLayoutGuide).offset(4)
@@ -203,6 +214,49 @@ final class EditorViewController: UIViewController {
 
         activity.snp.makeConstraints { make in
             make.center.equalTo(previewContainer)
+        }
+
+        screenCaptureOverlay.snp.makeConstraints { make in
+            make.edges.equalToSuperview()
+        }
+    }
+
+    private func setupScreenCaptureOverlay() {
+        screenCaptureOverlay.isHidden = true
+        screenCaptureOverlay.backgroundColor = .black
+        screenCaptureOverlay.isUserInteractionEnabled = true
+        screenCaptureOverlay.accessibilityViewIsModal = true
+        screenCaptureOverlay.layer.zPosition = 1_000
+
+        let iconView = UIImageView(image: UIImage(systemName: "video.slash.fill"))
+        iconView.tintColor = .white
+        iconView.contentMode = .scaleAspectFit
+
+        let titleLabel = UILabel()
+        titleLabel.text = "当前页面禁止录屏"
+        titleLabel.textColor = .white
+        titleLabel.font = .systemFont(ofSize: 22, weight: .bold)
+        titleLabel.textAlignment = .center
+
+        let messageLabel = UILabel()
+        messageLabel.text = "请停止系统录屏后继续播放"
+        messageLabel.textColor = UIColor.white.withAlphaComponent(0.72)
+        messageLabel.font = .systemFont(ofSize: 15, weight: .regular)
+        messageLabel.textAlignment = .center
+        messageLabel.numberOfLines = 0
+
+        let stack = UIStackView(arrangedSubviews: [iconView, titleLabel, messageLabel])
+        stack.axis = .vertical
+        stack.alignment = .center
+        stack.spacing = 12
+        screenCaptureOverlay.addSubview(stack)
+
+        iconView.snp.makeConstraints { make in
+            make.size.equalTo(52)
+        }
+        stack.snp.makeConstraints { make in
+            make.center.equalToSuperview()
+            make.leading.trailing.equalToSuperview().inset(32)
         }
     }
 
@@ -377,10 +431,15 @@ final class EditorViewController: UIViewController {
         shouldPlayWhenReady = false
         player?.pause()
         playButton.setImage(UIImage(systemName: "play.fill"), for: .normal)
+        updateScreenCaptureOverlayVisibility()
     }
 
     private func playFromCurrentOrTrimStart() {
         guard let player else { return }
+        guard !isScreenCaptured else {
+            updateScreenCaptureOverlayVisibility(forceShow: true)
+            return
+        }
         guard trimEnd > trimStart else {
             refreshTimeLabel(currentTime: trimStart)
             return
@@ -407,19 +466,29 @@ final class EditorViewController: UIViewController {
         guard let player else { return false }
         switch player.currentItem?.status {
         case .readyToPlay:
+            guard !isScreenCaptured else {
+                shouldPlayWhenReady = false
+                player.pause()
+                playButton.setImage(UIImage(systemName: "play.fill"), for: .normal)
+                updateScreenCaptureOverlayVisibility(forceShow: true)
+                return false
+            }
             shouldPlayWhenReady = false
             player.playImmediately(atRate: 1)
             playButton.setImage(UIImage(systemName: "pause.fill"), for: .normal)
+            updateScreenCaptureOverlayVisibility()
             return true
         case .failed:
             shouldPlayWhenReady = false
             playButton.setImage(UIImage(systemName: "play.fill"), for: .normal)
+            updateScreenCaptureOverlayVisibility()
             showAlert("播放失败", player.currentItem?.error?.localizedDescription ?? "视频无法播放")
             return false
         default:
             shouldPlayWhenReady = true
             player.play()
             playButton.setImage(UIImage(systemName: "pause.fill"), for: .normal)
+            updateScreenCaptureOverlayVisibility()
             player.currentItem?.asset.loadValuesAsynchronously(forKeys: ["playable", "duration"]) { [weak self] in
                 DispatchQueue.main.async { _ = self?.startPlaybackIfReady() }
             }
@@ -435,6 +504,7 @@ final class EditorViewController: UIViewController {
         case .failed:
             shouldPlayWhenReady = false
             playButton.setImage(UIImage(systemName: "play.fill"), for: .normal)
+            updateScreenCaptureOverlayVisibility()
             showAlert("播放失败", error?.localizedDescription ?? "视频无法播放")
         default:
             break
@@ -573,6 +643,7 @@ final class EditorViewController: UIViewController {
             self.timeline.alpha = fullscreen ? 0 : 1
             self.view.layoutIfNeeded()
             self.playerLayer?.frame = self.previewContainer.bounds
+            self.updateScreenCaptureOverlayVisibility()
         }
 
         let completion: (Bool) -> Void = { _ in
@@ -605,6 +676,42 @@ final class EditorViewController: UIViewController {
         }
     }
 
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        updateScreenCaptureOverlayVisibility()
+    }
+
+    private func observeScreenCaptureChanges() {
+        NotificationCenter.default.addObserver(self,
+                                               selector: #selector(screenCaptureStateChanged),
+                                               name: UIScreen.capturedDidChangeNotification,
+                                               object: nil)
+    }
+
+    @objc private func screenCaptureStateChanged() {
+        if isScreenCaptured, isPlaybackRequested {
+            pausePlayback()
+            updateScreenCaptureOverlayVisibility(forceShow: true)
+            return
+        }
+        updateScreenCaptureOverlayVisibility()
+    }
+
+    private func updateScreenCaptureOverlayVisibility(forceShow: Bool = false) {
+        let shouldShow = isScreenCaptured && (forceShow || isPlaybackRequested)
+        screenCaptureOverlay.isHidden = !shouldShow
+        if shouldShow {
+            view.bringSubviewToFront(screenCaptureOverlay)
+        }
+    }
+
+    private var isScreenCaptured: Bool {
+        if #available(iOS 17.0, *) {
+            return traitCollection.sceneCaptureState == .active
+        }
+        return UIScreen.main.isCaptured
+    }
+
     // MARK: - Save
 
     @objc private func saveTapped() {
@@ -616,8 +723,7 @@ final class EditorViewController: UIViewController {
     }
 
     private func exportAndSave() {
-        player?.pause()
-        playButton.setImage(UIImage(systemName: "play.fill"), for: .normal)
+        pausePlayback()
         activity.startAnimating()
         saveButton.isEnabled = false
 
@@ -644,8 +750,7 @@ final class EditorViewController: UIViewController {
     }
 
     @objc private func cancelTapped() {
-        player?.pause()
-        playButton.setImage(UIImage(systemName: "play.fill"), for: .normal)
+        pausePlayback()
 
         // 若已经是草稿（从首页打开），直接返回首页，不再提示。
         if project.isDraft {
