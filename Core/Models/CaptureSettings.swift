@@ -63,10 +63,27 @@ public struct PiPStyle: Codable, Equatable {
 /// 大窗 + 小窗的比例设置集合。
 public struct AspectSettings: Codable, Equatable {
     public var main: AspectRatio
+    public var isPiPEnabled: Bool
     public var pip: PiPStyle
 
-    public init(main: AspectRatio = .default, pip: PiPStyle = PiPStyle()) {
+    public init(main: AspectRatio = .default,
+                isPiPEnabled: Bool = true,
+                pip: PiPStyle = PiPStyle()) {
         self.main = main
+        self.isPiPEnabled = isPiPEnabled
         self.pip = pip
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case main
+        case isPiPEnabled
+        case pip
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        main = try container.decodeIfPresent(AspectRatio.self, forKey: .main) ?? .default
+        isPiPEnabled = try container.decodeIfPresent(Bool.self, forKey: .isPiPEnabled) ?? true
+        pip = try container.decodeIfPresent(PiPStyle.self, forKey: .pip) ?? PiPStyle()
     }
 }

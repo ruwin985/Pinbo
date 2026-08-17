@@ -12,12 +12,15 @@ final class RecordingViewController: UIViewController {
 
     private let subtitleLabel = UILabel()
     private let recordButton = UIButton(type: .system)
+    private let recordingDurationLabel = UILabel()
     private let statusLabel = UILabel()
     private let closeButton = UIButton(type: .system)
+    private var promptPanel: TeleprompterPanelView?
 
     private var pipTrack: [PiPKeyframe] = []
     private var subtitleTrack: [SubtitleSegment] = []
     private var recordStartTime: Date?
+    private var recordingDurationTimer: Timer?
     /// 录制会话期间为 true，用于收集停止后才到达的最后一段字幕。
     private var subtitleSessionActive = false
     private var pendingFinish: (main: URL?, pip: URL?)?
@@ -34,13 +37,18 @@ final class RecordingViewController: UIViewController {
         requestPermissionsAndStart()
     }
 
+    deinit {
+        recordingDurationTimer?.invalidate()
+    }
+
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         navigationController?.setNavigationBarHidden(true, animated: animated)
         // 从编辑页返回后恢复预览
         if source.state == .stopped || source.state == .configured {
             source.startRunning()
-            recordButton.setTitle("开始录制", for: .normal)
+            stopRecordingDurationTimer()
+            applyRecordButtonState(isRecording: false)
         }
     }
 
@@ -58,18 +66,28 @@ final class RecordingViewController: UIViewController {
         view.addSubview(subtitleLabel)
 
         // 录制按钮
-        recordButton.setTitle("开始录制", for: .normal)
-        recordButton.setTitleColor(.white, for: .normal)
-        recordButton.titleLabel?.font = .systemFont(ofSize: 18, weight: .bold)
         recordButton.backgroundColor = .systemRed
-        recordButton.layer.cornerRadius = 28
+        recordButton.layer.cornerRadius = 36
+        recordButton.tintColor = .white
+        recordButton.adjustsImageWhenHighlighted = true
         recordButton.addTarget(self, action: #selector(toggleRecording), for: .touchUpInside)
+        applyRecordButtonState(isRecording: false)
         view.addSubview(recordButton)
+
+        // 录制时长
+        recordingDurationLabel.isHidden = true
+        recordingDurationLabel.textColor = .white
+        recordingDurationLabel.font = .monospacedDigitSystemFont(ofSize: 15, weight: .semibold)
+        recordingDurationLabel.textAlignment = .center
+        recordingDurationLabel.backgroundColor = UIColor.black.withAlphaComponent(0.35)
+        recordingDurationLabel.layer.cornerRadius = 10
+        recordingDurationLabel.clipsToBounds = true
+        view.addSubview(recordingDurationLabel)
 
         // 状态
         statusLabel.textColor = .white
         statusLabel.font = .systemFont(ofSize: 13)
-        statusLabel.textAlignment = .left
+        statusLabel.textAlignment = .center
         statusLabel.numberOfLines = 3
         view.addSubview(statusLabel)
 
@@ -79,9 +97,10 @@ final class RecordingViewController: UIViewController {
         closeButton.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
         view.addSubview(closeButton)
 
-        // 右侧功能按钮列：比例
+        // 右侧功能按钮列：比例 / 提示词
         let aspectBtn = makeSideButton("aspectratio", "比例", #selector(aspectTapped))
-        let sideStack = UIStackView(arrangedSubviews: [aspectBtn])
+        let promptBtn = makeSideButton("text.alignleft", "提示词", #selector(promptTapped))
+        let sideStack = UIStackView(arrangedSubviews: [aspectBtn, promptBtn])
         sideStack.axis = .vertical
         sideStack.spacing = 20
         sideStack.alignment = .center
@@ -89,14 +108,20 @@ final class RecordingViewController: UIViewController {
 
         subtitleLabel.snp.makeConstraints { make in
             make.leading.trailing.equalToSuperview().inset(16)
-            make.bottom.equalTo(recordButton.snp.top).offset(-24)
+            make.bottom.equalTo(recordingDurationLabel.snp.top).offset(-16)
         }
 
         recordButton.snp.makeConstraints { make in
             make.centerX.equalToSuperview()
             make.bottom.equalTo(view.safeAreaLayoutGuide).inset(24)
-            make.width.equalTo(160)
-            make.height.equalTo(56)
+            make.size.equalTo(72)
+        }
+
+        recordingDurationLabel.snp.makeConstraints { make in
+            make.centerX.equalTo(recordButton)
+            make.bottom.equalTo(recordButton.snp.top).offset(-10)
+            make.height.equalTo(28)
+            make.width.greaterThanOrEqualTo(56)
         }
 
         statusLabel.snp.makeConstraints { make in
@@ -183,6 +208,9 @@ final class RecordingViewController: UIViewController {
         // 主画面预览（后摄，全屏）
         if let mainLayer = source.makeMainPreviewLayer() {
             let container = PreviewLayerView(previewLayer: mainLayer)
+            let dismissKeyboardTap = UITapGestureRecognizer(target: self, action: #selector(dismissPromptKeyboard))
+            dismissKeyboardTap.cancelsTouchesInView = false
+            container.addGestureRecognizer(dismissKeyboardTap)
             view.insertSubview(container, at: 0)
             container.snp.makeConstraints { make in
                 make.edges.equalToSuperview()
@@ -195,20 +223,7 @@ final class RecordingViewController: UIViewController {
             DispatchQueue.main.async { self.applyMainAspectMask() }
         }
 
-        // 画中画（前摄，默认位于左上角关闭按钮下方）
-        if let pipLayer = source.makePiPPreviewLayer() {
-            let content = PreviewLayerView(previewLayer: pipLayer)
-            let pip = PiPPreviewView(contentView: content)
-            view.layoutIfNeeded()
-            pip.frame = CGRect(x: closeButton.frame.minX,
-                               y: closeButton.frame.maxY + 12,
-                               width: 110,
-                               height: aspect.pip.aspect.defaultSize(forWidth: 110).height)
-            pip.onLayoutChanged = { [weak self] in self?.recordPiPKeyframe() }
-            view.addSubview(pip)
-            pipView = pip
-            applyPiPStyle()
-        }
+        updatePiPVisibility()
 
         // 字幕
         if speechGranted {
@@ -226,7 +241,7 @@ final class RecordingViewController: UIViewController {
         }
 
         source.startRunning()
-        statusLabel.text = "就绪：拖动/双指缩放小窗，点按开始录制"
+        statusLabel.text = aspect.isPiPEnabled ? "就绪：拖动/双指缩放小窗，点按开始录制" : "就绪：点按开始录制"
     }
 
     // MARK: - Recording
@@ -236,21 +251,70 @@ final class RecordingViewController: UIViewController {
         case .recording:
             source.stopRecording()
             speech.stop()
-            recordButton.setTitle("开始录制", for: .normal)
+            promptPanel?.stopAutoScroll()
+            stopRecordingDurationTimer()
+            applyRecordButtonState(isRecording: false)
         default:
             recordStartTime = Date()
             pipTrack.removeAll()
             subtitleTrack.removeAll()
             subtitleSessionActive = true
             pendingFinish = nil
+            startRecordingDurationTimer()
             recordPiPKeyframe()
-            source.startRecording()
+            source.startRecording(includePiP: aspect.isPiPEnabled)
             speech.start()
-            recordButton.setTitle("停止录制", for: .normal)
+            promptPanel?.startAutoScroll()
+            applyRecordButtonState(isRecording: true)
         }
     }
 
+    private func applyRecordButtonState(isRecording: Bool) {
+        let symbolName = isRecording ? "pause.fill" : "play.fill"
+        let configuration = UIImage.SymbolConfiguration(pointSize: 28, weight: .bold)
+        recordButton.setImage(UIImage(systemName: symbolName, withConfiguration: configuration), for: .normal)
+        recordButton.accessibilityLabel = isRecording ? "停止录制" : "开始录制"
+    }
+
+    private func startRecordingDurationTimer() {
+        stopRecordingDurationTimer()
+        updateRecordingDurationLabel()
+        recordingDurationLabel.isHidden = false
+        let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
+            self?.updateRecordingDurationLabel()
+        }
+        recordingDurationTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    private func stopRecordingDurationTimer() {
+        recordingDurationTimer?.invalidate()
+        recordingDurationTimer = nil
+        recordingDurationLabel.isHidden = true
+    }
+
+    private func updateRecordingDurationLabel() {
+        let elapsed = recordStartTime.map { Date().timeIntervalSince($0) } ?? 0
+        recordingDurationLabel.text = Self.formatRecordingDuration(elapsed)
+    }
+
+    private static func formatRecordingDuration(_ duration: TimeInterval) -> String {
+        let totalSeconds = max(0, Int(duration))
+        let seconds = totalSeconds % 60
+        let minutes = (totalSeconds / 60) % 60
+        let hours = totalSeconds / 3600
+
+        if hours > 0 {
+            return "\(hours)小时\(minutes)分钟\(seconds)秒"
+        }
+        if totalSeconds >= 60 {
+            return "\(minutes)分钟\(seconds)秒"
+        }
+        return "\(seconds)秒"
+    }
+
     private func recordPiPKeyframe() {
+        guard aspect.isPiPEnabled else { return }
         guard let pip = pipView else { return }
         let layout = pip.normalizedLayout(in: view)
         let t = recordStartTime.map { Date().timeIntervalSince($0) } ?? 0
@@ -263,18 +327,92 @@ final class RecordingViewController: UIViewController {
     // MARK: - Settings sheets
 
     @objc private func closeTapped() {
+        promptPanel?.stopAutoScroll()
         navigationController?.popToRootViewController(animated: true)
+    }
+
+    @objc private func promptTapped() {
+        showPromptPanel()
+    }
+
+    @objc private func dismissPromptKeyboard() {
+        promptPanel?.dismissKeyboard()
     }
 
     @objc private func aspectTapped() {
         let sheet = AspectSettingsViewController(settings: aspect)
         sheet.onChange = { [weak self] settings in
             self?.aspect = settings
+            self?.updatePiPVisibility()
             self?.applyPiPStyle()
             self?.applyMainAspectMask()
             self?.recordPiPKeyframe()
         }
         presentSheet(sheet)
+    }
+
+    private func showPromptPanel() {
+        let panel = promptPanel ?? makePromptPanel()
+        panel.isHidden = false
+        view.layoutIfNeeded()
+        layoutPromptPanelIfNeeded()
+        view.bringSubviewToFront(panel)
+        if source.state == .recording {
+            panel.startAutoScroll()
+        }
+    }
+
+    private func makePromptPanel() -> TeleprompterPanelView {
+        let panel = TeleprompterPanelView()
+        panel.isHidden = true
+        panel.onClose = { [weak self] in
+            self?.hidePromptPanel()
+        }
+        view.addSubview(panel)
+        promptPanel = panel
+        return panel
+    }
+
+    private func hidePromptPanel() {
+        promptPanel?.stopAutoScroll()
+        promptPanel?.isHidden = true
+    }
+
+    private func layoutPromptPanelIfNeeded() {
+        guard let panel = promptPanel, !panel.isHidden else { return }
+        updatePromptPanelDragBoundary(panel)
+        if panel.hasCustomPosition {
+            panel.fitInsideSuperview()
+        } else {
+            panel.frame = defaultPromptPanelFrame()
+        }
+    }
+
+    private func updatePromptPanelDragBoundary(_ panel: TeleprompterPanelView) {
+        panel.maximumBottomY = recordButton.frame.minY - 12
+    }
+
+    private func defaultPromptPanelFrame() -> CGRect {
+        let horizontalInset: CGFloat = 16
+        let topSpacing: CGFloat = 12
+        let bottomSpacing: CGFloat = 12
+        let minimumHeight: CGFloat = 280
+        let fallbackSubtitleHeight = subtitleLabel.font.lineHeight * CGFloat(max(subtitleLabel.numberOfLines, 1))
+        let top = max(view.safeAreaInsets.top + 56, closeButton.frame.maxY + topSpacing)
+        let subtitleTop = subtitleLabel.frame.height > 1
+            ? subtitleLabel.frame.minY
+            : recordButton.frame.minY - 24 - fallbackSubtitleHeight
+        let recordButtonTop = recordButton.frame.minY - bottomSpacing
+        let preferredBottom = min(view.bounds.height - view.safeAreaInsets.bottom - horizontalInset,
+                                  recordButtonTop,
+                                  subtitleTop - bottomSpacing)
+        let availableBottom = min(view.bounds.height - view.safeAreaInsets.bottom - horizontalInset,
+                                  recordButtonTop)
+        let preferredHeight = max(minimumHeight, preferredBottom - top)
+        let availableHeight = max(220, availableBottom - top)
+        let panelHeight = min(preferredHeight, availableHeight)
+        let panelWidth = max(0, view.bounds.width - horizontalInset * 2)
+        return CGRect(x: horizontalInset, y: top, width: panelWidth, height: panelHeight)
     }
 
     /// 用黑边遮罩把主预览裁到所选主比例的取景区（居中）。
@@ -313,6 +451,7 @@ final class RecordingViewController: UIViewController {
 
     /// 应用小窗比例与圆角到预览。
     private func applyPiPStyle() {
+        guard aspect.isPiPEnabled else { return }
         guard let pip = pipView else { return }
         let style = aspect.pip
         let width = pip.bounds.width
@@ -326,9 +465,39 @@ final class RecordingViewController: UIViewController {
         pip.layer.cornerRadius = maxRadius * style.cornerRatio
     }
 
+    private func updatePiPVisibility() {
+        if aspect.isPiPEnabled {
+            ensurePiPView()
+            pipView?.isHidden = false
+        } else {
+            pipView?.removeFromSuperview()
+            pipView = nil
+            pipTrack.removeAll()
+        }
+    }
+
+    private func ensurePiPView() {
+        guard pipView == nil, let pipLayer = source.makePiPPreviewLayer() else { return }
+        let content = PreviewLayerView(previewLayer: pipLayer)
+        let pip = PiPPreviewView(contentView: content)
+        view.layoutIfNeeded()
+        pip.frame = CGRect(x: closeButton.frame.minX,
+                           y: closeButton.frame.maxY + 12,
+                           width: 110,
+                           height: aspect.pip.aspect.defaultSize(forWidth: 110).height)
+        pip.onLayoutChanged = { [weak self] in self?.recordPiPKeyframe() }
+        view.addSubview(pip)
+        pipView = pip
+        applyPiPStyle()
+        if let promptPanel, !promptPanel.isHidden {
+            view.bringSubviewToFront(promptPanel)
+        }
+    }
+
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         applyMainAspectMask()
+        layoutPromptPanelIfNeeded()
     }
 }
 
@@ -365,9 +534,9 @@ extension RecordingViewController: CaptureSourceDelegate {
         let duration = Self.mediaDuration(for: pending.main, fallback: elapsedDuration)
         let project = RecordingProject(
             mainVideoURL: pending.main,
-            pipVideoURL: pending.pip,
+            pipVideoURL: aspect.isPiPEnabled ? pending.pip : nil,
             duration: duration,
-            pipTrack: pipTrack,
+            pipTrack: aspect.isPiPEnabled ? pipTrack : [],
             subtitleTrack: subtitleTrack.sorted { $0.startTime < $1.startTime },
             aspect: aspect
         )

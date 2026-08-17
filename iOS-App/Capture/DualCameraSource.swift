@@ -31,6 +31,7 @@ final class DualCameraSource: NSObject, CaptureSourceProviding {
     private var backFileURL: URL?
     private var frontFileURL: URL?
     private var pendingFinishCount = 0
+    private var isRecordingPiP = true
 
     // MARK: - Configure
 
@@ -128,16 +129,24 @@ final class DualCameraSource: NSObject, CaptureSourceProviding {
     // MARK: - Recording
 
     func startRecording() {
+        startRecording(includePiP: true)
+    }
+
+    func startRecording(includePiP: Bool = true) {
         sessionQueue.async {
             let dir = FileManager.default.temporaryDirectory
             let stamp = Int(Date().timeIntervalSince1970)
             let back = dir.appendingPathComponent("pinbo_back_\(stamp).mov")
-            let front = dir.appendingPathComponent("pinbo_front_\(stamp).mov")
             self.backFileURL = back
-            self.frontFileURL = front
-            self.pendingFinishCount = 2
+            self.frontFileURL = nil
+            self.isRecordingPiP = includePiP
+            self.pendingFinishCount = includePiP ? 2 : 1
             self.backMovieOutput.startRecording(to: back, recordingDelegate: self)
-            self.frontMovieOutput.startRecording(to: front, recordingDelegate: self)
+            if includePiP {
+                let front = dir.appendingPathComponent("pinbo_front_\(stamp).mov")
+                self.frontFileURL = front
+                self.frontMovieOutput.startRecording(to: front, recordingDelegate: self)
+            }
             self.state = .recording
         }
     }
@@ -168,7 +177,7 @@ extension DualCameraSource: AVCaptureFileOutputRecordingDelegate {
                     self.state = .stopped
                     self.delegate?.captureSource(self,
                                                  didFinishRecordingMain: self.backFileURL,
-                                                 pip: self.frontFileURL)
+                                                 pip: self.isRecordingPiP ? self.frontFileURL : nil)
                 }
             }
         }

@@ -44,7 +44,7 @@ public final class VideoCompositor {
         guard let mainURL = project.mainVideoURL else { throw CompositorError.missingMainVideo }
 
         let mainAsset = AVURLAsset(url: mainURL)
-        let pipAsset = project.pipVideoURL.map { AVURLAsset(url: $0) }
+        let pipAsset = project.aspect.isPiPEnabled ? project.pipVideoURL.map { AVURLAsset(url: $0) } : nil
 
         let composition = AVMutableComposition()
 
@@ -75,7 +75,7 @@ public final class VideoCompositor {
         // 画中画轨道
         var pipSourceTrack: AVAssetTrack?
         var pipTrackID: CMPersistentTrackID?
-        let hasPip = pipAsset != nil && !project.pipTrack.isEmpty
+        let hasPip = project.aspect.isPiPEnabled && pipAsset != nil && !project.pipTrack.isEmpty
         if let pipAsset, let track = pipAsset.tracks(withMediaType: .video).first,
            let t = composition.addMutableTrack(
             withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) {

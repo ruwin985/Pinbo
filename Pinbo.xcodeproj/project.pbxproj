@@ -22,6 +22,7 @@
 		559C298F4EBB9F9E5DD095D4 /* VideoCompositor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0539275027DBFE4B92283011 /* VideoCompositor.swift */; };
 		658AE075DCF9AE6712F9D0AB /* SubtitleSegmenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80C149840162F6F4D3C6C740 /* SubtitleSegmenter.swift */; };
 		7BBA496D2AE67F598D8ACD12 /* RecordingViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F6A393549717AC9447F5A18 /* RecordingViewController.swift */; };
+		7C2788D76D054763BF101A83 /* TeleprompterPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10C560A038F46C1B08AF168 /* TeleprompterPanelView.swift */; };
 		89CBE54D3E5534D094BE1510 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 780EE4168B0B518C7C186477 /* AppDelegate.swift */; };
 		8ABEF9063D0511E92F8FF788 /* SheetCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = C851115FE9FA42E26FE76C62 /* SheetCard.swift */; };
 		AFA715C6E6FA9AC35108199F /* HomeViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7506DE4AFCDC89864BF894A /* HomeViewController.swift */; };
@@ -61,6 +62,7 @@
 		DBCE30DF3053506888EC11B4 /* EditorViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorViewController.swift; sourceTree = "<group>"; };
 		DDB54FC11F3F9C845EA38703 /* Pinbo.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Pinbo.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		E0104C96D0BD960844FF2C9B /* Project.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Project.swift; sourceTree = "<group>"; };
+		F10C560A038F46C1B08AF168 /* TeleprompterPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TeleprompterPanelView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -127,6 +129,7 @@
 				4463D2F78D90BF7971D78410 /* PiPPreviewView.swift */,
 				25A6DBF2644B076BF56F2E94 /* PreviewLayerView.swift */,
 				9F6A393549717AC9447F5A18 /* RecordingViewController.swift */,
+				F10C560A038F46C1B08AF168 /* TeleprompterPanelView.swift */,
 				0C4199649F39A266ABBEB433 /* Settings */,
 			);
 			path = Capture;
@@ -323,6 +326,7 @@
 				522D917AE0C3EA7E77CB5D60 /* SceneDelegate.swift in Sources */,
 				8ABEF9063D0511E92F8FF788 /* SheetCard.swift in Sources */,
 				658AE075DCF9AE6712F9D0AB /* SubtitleSegmenter.swift in Sources */,
+				7C2788D76D054763BF101A83 /* TeleprompterPanelView.swift in Sources */,
 				4AD84E2836CA86D3044BF0A0 /* TimelineView.swift in Sources */,
 				559C298F4EBB9F9E5DD095D4 /* VideoCompositor.swift in Sources */,
 			);

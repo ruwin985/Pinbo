@@ -1,15 +1,21 @@
 import UIKit
+import SnapKit
 
-/// 比例设置弹窗：分别调整大窗（主画面）和小窗（画中画）的比例，以及小窗圆角。
+/// 比例设置弹窗：分别调整大窗（主画面）和小窗（画中画）的开关、比例，以及小窗圆角。
 final class AspectSettingsViewController: UIViewController {
 
     var onChange: ((AspectSettings) -> Void)?
     private var settings: AspectSettings
 
     private let mainSegmented = UISegmentedControl(items: AspectRatio.allCases.map { $0.rawValue })
+    private let pipSwitch = UISwitch()
     private let pipSegmented = UISegmentedControl(items: AspectRatio.allCases.map { $0.rawValue })
     private let cornerSlider = UISlider()
     private let cornerValueLabel = UILabel()
+    private lazy var mainRatioSection = makeControlSection(title: "大窗比例（主画面）", control: mainSegmented)
+    private lazy var pipSwitchRow = SheetCard.makeRow("前摄像头小窗口", pipSwitch)
+    private lazy var pipRatioSection = makeControlSection(title: "小窗比例（画中画）", control: pipSegmented)
+    private lazy var cornerSection = makeSliderSection(title: "小窗圆角", slider: cornerSlider, valueLabel: cornerValueLabel)
 
     init(settings: AspectSettings) {
         self.settings = settings
@@ -23,33 +29,129 @@ final class AspectSettingsViewController: UIViewController {
         card.onClose = { [weak self] in self?.dismiss(animated: true) }
         card.pin(to: view)
 
-        let accent = UIColor(red: 1, green: 0.25, blue: 0.35, alpha: 1)
-
         mainSegmented.selectedSegmentIndex = AspectRatio.allCases.firstIndex(of: settings.main) ?? 0
-        mainSegmented.selectedSegmentTintColor = accent
-        mainSegmented.setTitleTextAttributes([.foregroundColor: UIColor.white], for: .normal)
+        applySegmentedStyle(mainSegmented)
         mainSegmented.addTarget(self, action: #selector(valueChanged), for: .valueChanged)
 
+        pipSwitch.isOn = settings.isPiPEnabled
+        pipSwitch.onTintColor = .systemGreen
+        pipSwitch.addTarget(self, action: #selector(valueChanged), for: .valueChanged)
+
         pipSegmented.selectedSegmentIndex = AspectRatio.allCases.firstIndex(of: settings.pip.aspect) ?? 0
-        pipSegmented.selectedSegmentTintColor = accent
-        pipSegmented.setTitleTextAttributes([.foregroundColor: UIColor.white], for: .normal)
+        applySegmentedStyle(pipSegmented)
         pipSegmented.addTarget(self, action: #selector(valueChanged), for: .valueChanged)
 
         cornerSlider.minimumValue = 0
         cornerSlider.maximumValue = 1
         cornerSlider.value = Float(settings.pip.cornerRatio)
+        applySliderStyle(cornerSlider)
         cornerSlider.addTarget(self, action: #selector(valueChanged), for: .valueChanged)
 
-        cornerValueLabel.textColor = UIColor(white: 0.7, alpha: 1)
-        cornerValueLabel.font = .systemFont(ofSize: 13)
+        cornerValueLabel.textColor = UIColor.white.withAlphaComponent(0.58)
+        cornerValueLabel.font = .monospacedDigitSystemFont(ofSize: 12, weight: .medium)
+        cornerValueLabel.textAlignment = .right
         updateCornerLabel()
 
-        card.addContent(SheetCard.makeLabel("大窗比例（主画面）"))
-        card.addContent(mainSegmented)
-        card.addContent(SheetCard.makeLabel("小窗比例（画中画）"))
-        card.addContent(pipSegmented)
-        card.addContent(SheetCard.makeRow("小窗圆角", cornerValueLabel))
-        card.addContent(cornerSlider)
+        card.addContent(mainRatioSection)
+        card.addContent(pipSwitchRow)
+        card.addContent(pipRatioSection)
+        card.addContent(cornerSection)
+        updatePiPControlsVisibility()
+    }
+
+    private func makeControlSection(title: String, control: UIView) -> UIView {
+        let container = makeSectionContainer()
+        let titleLabel = SheetCard.makeLabel(title)
+        let stack = UIStackView(arrangedSubviews: [titleLabel, control])
+        stack.axis = .vertical
+        stack.spacing = 10
+        container.addSubview(stack)
+
+        stack.snp.makeConstraints { make in
+            make.edges.equalToSuperview().inset(14)
+        }
+
+        control.snp.makeConstraints { make in
+            make.height.equalTo(34)
+        }
+        return container
+    }
+
+    private func makeSliderSection(title: String, slider: UISlider, valueLabel: UILabel) -> UIView {
+        let container = makeSectionContainer()
+        let titleLabel = SheetCard.makeLabel(title)
+        let labelRow = UIStackView(arrangedSubviews: [titleLabel, valueLabel])
+        labelRow.axis = .horizontal
+        labelRow.alignment = .center
+        labelRow.spacing = 8
+
+        let stack = UIStackView(arrangedSubviews: [labelRow, slider])
+        stack.axis = .vertical
+        stack.spacing = 4
+        container.addSubview(stack)
+
+        stack.snp.makeConstraints { make in
+            make.edges.equalToSuperview().inset(14)
+        }
+
+        valueLabel.snp.makeConstraints { make in
+            make.width.equalTo(50)
+        }
+        slider.snp.makeConstraints { make in
+            make.height.equalTo(24)
+        }
+        return container
+    }
+
+    private func makeSectionContainer() -> UIView {
+        let container = UIView()
+        container.backgroundColor = UIColor.white.withAlphaComponent(0.075)
+        container.layer.cornerRadius = 18
+        container.layer.cornerCurve = .continuous
+        container.layer.borderWidth = 0.6
+        container.layer.borderColor = UIColor.white.withAlphaComponent(0.08).cgColor
+        return container
+    }
+
+    private func applySegmentedStyle(_ segmented: UISegmentedControl) {
+        segmented.backgroundColor = UIColor.white.withAlphaComponent(0.08)
+        segmented.selectedSegmentTintColor = UIColor.white.withAlphaComponent(0.24)
+        segmented.setTitleTextAttributes([
+            .foregroundColor: UIColor.white.withAlphaComponent(0.6),
+            .font: UIFont.systemFont(ofSize: 13, weight: .semibold)
+        ], for: .normal)
+        segmented.setTitleTextAttributes([
+            .foregroundColor: UIColor.white,
+            .font: UIFont.systemFont(ofSize: 13, weight: .semibold)
+        ], for: .selected)
+    }
+
+    private func applySliderStyle(_ slider: UISlider) {
+        slider.setMinimumTrackImage(makeSliderTrackImage(color: UIColor.white.withAlphaComponent(0.82)), for: .normal)
+        slider.setMaximumTrackImage(makeSliderTrackImage(color: UIColor.white.withAlphaComponent(0.16)), for: .normal)
+        slider.setThumbImage(makeSliderThumbImage(), for: .normal)
+        slider.setThumbImage(makeSliderThumbImage(diameter: 20), for: .highlighted)
+    }
+
+    private func makeSliderTrackImage(color: UIColor) -> UIImage {
+        let height: CGFloat = 4
+        let size = CGSize(width: height, height: height)
+        let image = UIGraphicsImageRenderer(size: size).image { _ in
+            color.setFill()
+            UIBezierPath(roundedRect: CGRect(origin: .zero, size: size), cornerRadius: height / 2).fill()
+        }
+        return image.resizableImage(withCapInsets: UIEdgeInsets(top: 0, left: height / 2, bottom: 0, right: height / 2))
+    }
+
+    private func makeSliderThumbImage(diameter: CGFloat = 18) -> UIImage {
+        let padding: CGFloat = 5
+        let size = CGSize(width: diameter + padding * 2, height: diameter + padding * 2)
+        return UIGraphicsImageRenderer(size: size).image { context in
+            let rect = CGRect(x: padding, y: padding, width: diameter, height: diameter)
+            context.cgContext.setShadow(offset: CGSize(width: 0, height: 2), blur: 5, color: UIColor.black.withAlphaComponent(0.28).cgColor)
+            UIColor.white.setFill()
+            UIBezierPath(ovalIn: rect).fill()
+        }
     }
 
     private func updateCornerLabel() {
@@ -62,11 +164,19 @@ final class AspectSettingsViewController: UIViewController {
         }
     }
 
+    private func updatePiPControlsVisibility() {
+        let isPiPEnabled = settings.isPiPEnabled
+        pipRatioSection.isHidden = !isPiPEnabled
+        cornerSection.isHidden = !isPiPEnabled
+    }
+
     @objc private func valueChanged() {
         settings.main = AspectRatio.allCases[mainSegmented.selectedSegmentIndex]
+        settings.isPiPEnabled = pipSwitch.isOn
         settings.pip.aspect = AspectRatio.allCases[pipSegmented.selectedSegmentIndex]
         settings.pip.cornerRatio = CGFloat(cornerSlider.value)
         updateCornerLabel()
+        updatePiPControlsVisibility()
         onChange?(settings)
     }
 }

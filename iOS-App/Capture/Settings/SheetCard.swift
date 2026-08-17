@@ -7,14 +7,41 @@ final class SheetCard: UIView {
     var onClose: (() -> Void)?
     private let contentStack = UIStackView()
     private let card = UIView()
+    private let blurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemUltraThinMaterialDark))
+    private let overlayView = UIView()
+    private let dragHandleView = UIView()
 
     init(title: String) {
         super.init(frame: .zero)
-        backgroundColor = UIColor.black.withAlphaComponent(0.4)
+        backgroundColor = UIColor.black.withAlphaComponent(0.22)
 
-        card.backgroundColor = UIColor(white: 0.14, alpha: 1)
-        card.layer.cornerRadius = 20
+        card.backgroundColor = .clear
+        card.layer.cornerRadius = 28
+        card.layer.cornerCurve = .continuous
+        card.layer.borderWidth = 0.7
+        card.layer.borderColor = UIColor.white.withAlphaComponent(0.14).cgColor
+        card.layer.shadowColor = UIColor.black.cgColor
+        card.layer.shadowOpacity = 0.28
+        card.layer.shadowRadius = 28
+        card.layer.shadowOffset = CGSize(width: 0, height: -8)
+        card.clipsToBounds = false
         addSubview(card)
+
+        blurView.layer.cornerRadius = 28
+        blurView.layer.cornerCurve = .continuous
+        blurView.clipsToBounds = true
+        card.addSubview(blurView)
+
+        overlayView.backgroundColor = UIColor.black.withAlphaComponent(0.42)
+        overlayView.layer.cornerRadius = 28
+        overlayView.layer.cornerCurve = .continuous
+        overlayView.clipsToBounds = true
+        card.addSubview(overlayView)
+
+        dragHandleView.backgroundColor = UIColor.white.withAlphaComponent(0.34)
+        dragHandleView.layer.cornerRadius = 2
+        dragHandleView.layer.cornerCurve = .continuous
+        card.addSubview(dragHandleView)
 
         let titleLabel = UILabel()
         titleLabel.text = title
@@ -23,11 +50,14 @@ final class SheetCard: UIView {
 
         let closeButton = UIButton(type: .system)
         closeButton.setImage(UIImage(named: "close_icon"), for: .normal)
-        closeButton.tintColor = UIColor(white: 0.7, alpha: 1)
+        closeButton.tintColor = UIColor.white.withAlphaComponent(0.86)
+        closeButton.backgroundColor = UIColor.white.withAlphaComponent(0.1)
+        closeButton.layer.cornerRadius = 15
+        closeButton.layer.cornerCurve = .continuous
         closeButton.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
 
         contentStack.axis = .vertical
-        contentStack.spacing = 14
+        contentStack.spacing = 12
 
         let header = UIStackView(arrangedSubviews: [titleLabel])
         card.addSubview(header)
@@ -38,18 +68,35 @@ final class SheetCard: UIView {
             make.leading.trailing.bottom.equalToSuperview()
         }
 
+        blurView.snp.makeConstraints { make in
+            make.edges.equalToSuperview()
+        }
+
+        overlayView.snp.makeConstraints { make in
+            make.edges.equalToSuperview()
+        }
+
+        dragHandleView.snp.makeConstraints { make in
+            make.top.equalToSuperview().offset(10)
+            make.centerX.equalToSuperview()
+            make.width.equalTo(38)
+            make.height.equalTo(4)
+        }
+
         header.snp.makeConstraints { make in
-            make.top.leading.equalToSuperview().offset(20)
+            make.top.equalToSuperview().offset(30)
+            make.leading.equalToSuperview().offset(22)
         }
 
         closeButton.snp.makeConstraints { make in
             make.centerY.equalTo(header)
             make.trailing.equalToSuperview().inset(18)
+            make.size.equalTo(30)
         }
 
         contentStack.snp.makeConstraints { make in
-            make.top.equalTo(header.snp.bottom).offset(18)
-            make.leading.trailing.equalToSuperview().inset(20)
+            make.top.equalTo(header.snp.bottom).offset(20)
+            make.leading.trailing.equalToSuperview().inset(18)
             make.bottom.equalTo(card.safeAreaLayoutGuide).inset(24)
         }
 
@@ -78,18 +125,40 @@ final class SheetCard: UIView {
     static func makeLabel(_ text: String) -> UILabel {
         let l = UILabel()
         l.text = text
-        l.textColor = .white
-        l.font = .systemFont(ofSize: 15)
+        l.textColor = UIColor.white.withAlphaComponent(0.72)
+        l.font = .systemFont(ofSize: 13, weight: .medium)
         return l
     }
 
     static func makeRow(_ title: String, _ control: UIView) -> UIView {
         let label = makeLabel(title)
-        let spacer = UIView()
-        let stack = UIStackView(arrangedSubviews: [label, spacer, control])
+        label.font = .systemFont(ofSize: 15, weight: .medium)
+        label.textColor = UIColor.white.withAlphaComponent(0.88)
+
+        let stack = UIStackView(arrangedSubviews: [label, control])
         stack.axis = .horizontal
         stack.alignment = .center
-        return stack
+        stack.spacing = 14
+
+        let row = UIView()
+        row.backgroundColor = UIColor.white.withAlphaComponent(0.075)
+        row.layer.cornerRadius = 16
+        row.layer.cornerCurve = .continuous
+        row.layer.borderWidth = 0.6
+        row.layer.borderColor = UIColor.white.withAlphaComponent(0.08).cgColor
+        row.addSubview(stack)
+
+        stack.snp.makeConstraints { make in
+            make.leading.trailing.equalToSuperview().inset(14)
+            make.top.bottom.equalToSuperview().inset(12)
+        }
+
+        control.setContentHuggingPriority(.required, for: .horizontal)
+        control.setContentCompressionResistancePriority(.required, for: .horizontal)
+        row.snp.makeConstraints { make in
+            make.height.greaterThanOrEqualTo(50)
+        }
+        return row
     }
 }
 
