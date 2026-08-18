@@ -42,6 +42,7 @@ final class EditorViewController: UIViewController {
     private var mediaDuration: TimeInterval
     private var isFullscreen = false
     private var shouldPlayWhenReady = false
+    private var areSubtitlesVisible = true
     private var currentSubtitleSegmentID: UUID?
     private var subtitlePanStartCenter: CGPoint = .zero
     private var subtitlePinchStartScale: CGFloat = 1
@@ -143,6 +144,7 @@ final class EditorViewController: UIViewController {
         // 时间轴
         timeline.duration = project.duration
         timeline.subtitleSegments = project.subtitleTrack
+        timeline.areSubtitlesVisible = areSubtitlesVisible
         timeline.trimStart = trimStart
         timeline.trimEnd = trimEnd
         timeline.onSeek = { [weak self] t in self?.seek(to: t) }
@@ -153,6 +155,9 @@ final class EditorViewController: UIViewController {
         }
         timeline.onSubtitleTapped = { [weak self] id in
             self?.editSubtitle(id: id)
+        }
+        timeline.onSubtitleVisibilityToggled = { [weak self] isVisible in
+            self?.setSubtitlesVisible(isVisible)
         }
 
         activity.color = .white
@@ -314,11 +319,24 @@ final class EditorViewController: UIViewController {
 
     /// 根据当前时间显示对应字幕分段（实时叠加，与轨道一致）。
     private func updateSubtitleOverlay(at t: TimeInterval) {
+        guard areSubtitlesVisible else {
+            currentSubtitleSegmentID = nil
+            subtitleOverlay.text = ""
+            subtitleOverlay.isHidden = true
+            return
+        }
         let seg = project.subtitleTrack.first { t >= $0.startTime && t <= $0.endTime }
         currentSubtitleSegmentID = seg?.id
         subtitleOverlay.text = seg?.text ?? ""
         subtitleOverlay.isHidden = seg == nil || (seg?.text.isEmpty ?? true)
         layoutSubtitleOverlay()
+    }
+
+    private func setSubtitlesVisible(_ isVisible: Bool) {
+        guard areSubtitlesVisible != isVisible else { return }
+        areSubtitlesVisible = isVisible
+        timeline.areSubtitlesVisible = isVisible
+        updateSubtitleOverlay(at: player?.currentTime().seconds ?? trimStart)
     }
 
     private func layoutSubtitleOverlay() {
@@ -520,12 +538,12 @@ final class EditorViewController: UIViewController {
     }
 
     @objc private func handleSubtitleTap(_ gesture: UITapGestureRecognizer) {
-        guard gesture.state == .ended, let currentSubtitleSegmentID else { return }
+        guard areSubtitlesVisible, gesture.state == .ended, let currentSubtitleSegmentID else { return }
         editSubtitle(id: currentSubtitleSegmentID)
     }
 
     @objc private func handleSubtitlePan(_ gesture: UIPanGestureRecognizer) {
-        guard !subtitleOverlay.isHidden else { return }
+        guard areSubtitlesVisible, !subtitleOverlay.isHidden else { return }
         switch gesture.state {
         case .began:
             subtitlePanStartCenter = subtitleOverlay.center
@@ -545,7 +563,7 @@ final class EditorViewController: UIViewController {
     }
 
     @objc private func handleSubtitlePinch(_ gesture: UIPinchGestureRecognizer) {
-        guard !subtitleOverlay.isHidden else { return }
+        guard areSubtitlesVisible, !subtitleOverlay.isHidden else { return }
         switch gesture.state {
         case .began:
             subtitlePinchStartScale = project.subtitleLayout.fontScale
@@ -562,6 +580,7 @@ final class EditorViewController: UIViewController {
     }
 
     private func editSubtitle(id: UUID) {
+        guard areSubtitlesVisible else { return }
         guard let index = project.subtitleTrack.firstIndex(where: { $0.id == id }) else { return }
         pausePlayback()
 
@@ -727,7 +746,10 @@ final class EditorViewController: UIViewController {
         activity.startAnimating()
         saveButton.isEnabled = false
 
-        compositor.export(project: project, trimStart: trimStart, trimEnd: trimEnd) { [weak self] result in
+        compositor.export(project: project,
+                          includeSubtitles: areSubtitlesVisible,
+                          trimStart: trimStart,
+                          trimEnd: trimEnd) { [weak self] result in
             guard let self else { return }
             switch result {
             case .success(let url):

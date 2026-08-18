@@ -1,10 +1,8 @@
 import Foundation
 import AVFoundation
 import CoreImage
+import CoreText
 import ImageIO
-#if canImport(UIKit)
-import UIKit
-#endif
 
 struct VideoTrackTransform {
     let orientation: CGImagePropertyOrientation?
@@ -218,7 +216,6 @@ final class PiPVideoCompositor: NSObject, AVVideoCompositing {
     }
 
     private func renderSubtitle(_ text: String, layout: SubtitleLayout, canvas: CGSize) -> CIImage? {
-        #if canImport(UIKit)
         let normalized = normalizedSubtitleLayout(layout)
         let key = SubtitleRenderKey(text: text,
                                     canvasWidth: Int(canvas.width.rounded()),
@@ -231,61 +228,108 @@ final class PiPVideoCompositor: NSObject, AVVideoCompositing {
 
         let inset = max(24, canvas.width * 0.04)
         let maxWidth = min(normalized.maxWidth * canvas.width, canvas.width - inset * 2)
-        let font = UIFont.systemFont(ofSize: max(28, min(canvas.width, canvas.height) * 0.06 * normalized.fontScale), weight: .bold)
-        let padding = max(8, font.pointSize * 0.2)
-        let para = NSMutableParagraphStyle()
-        para.alignment = .center
-        para.lineBreakMode = .byWordWrapping
-        let measureAttrs: [NSAttributedString.Key: Any] = [
-            .font: font,
-            .paragraphStyle: para
-        ]
-        let strokeAttrs: [NSAttributedString.Key: Any] = [
-            .font: font,
-            .foregroundColor: UIColor.white,
-            .strokeColor: UIColor.black,
-            .strokeWidth: 5.0,
-            .paragraphStyle: para
-        ]
-        let fillAttrs: [NSAttributedString.Key: Any] = [
-            .font: font,
-            .foregroundColor: UIColor.white,
-            .paragraphStyle: para
-        ]
-        let textWidth = maxWidth - padding * 2
-        let maxTextHeight = ceil(font.lineHeight * 3)
-        let fitting = (text as NSString).boundingRect(with: CGSize(width: textWidth, height: .greatestFiniteMagnitude),
-                                                      options: [.usesLineFragmentOrigin, .usesFontLeading],
-                                                      attributes: measureAttrs,
-                                                      context: nil)
-        let textHeight = min(maxTextHeight, max(ceil(font.lineHeight), ceil(fitting.height)))
-        let format = UIGraphicsImageRendererFormat.default()
-        format.scale = 1
-        format.opaque = false
-        let renderer = UIGraphicsImageRenderer(size: CGSize(width: maxWidth, height: textHeight + padding * 2),
-                                               format: format)
-        let img = renderer.image { ctx in
-            ctx.cgContext.setShadow(offset: CGSize(width: 0, height: 2), blur: 6, color: UIColor.black.cgColor)
-            (text as NSString).draw(in: CGRect(x: padding,
-                                               y: padding,
-                                               width: textWidth,
-                                               height: textHeight),
-                                    withAttributes: strokeAttrs)
-            (text as NSString).draw(in: CGRect(x: padding,
-                                               y: padding,
-                                               width: textWidth,
-                                               height: textHeight),
-                                    withAttributes: fillAttrs)
-        }
-        guard let ci = CIImage(image: img) else { return nil }
-        let frame = subtitleFrame(size: img.size, layout: normalized, canvas: canvas)
+        let fontSize = max(28, min(canvas.width, canvas.height) * 0.06 * normalized.fontScale)
+        let font = CTFontCreateWithName("HelveticaNeue-Bold" as CFString, fontSize, nil)
+        let padding = max(8, fontSize * 0.2)
+        let textWidth = max(1, maxWidth - padding * 2)
+        let paragraph = makeSubtitleParagraphStyle()
+        let measureText = makeSubtitleString(text, font: font, paragraph: paragraph, strokeOnly: false)
+        let framesetter = CTFramesetterCreateWithAttributedString(measureText)
+        let fitting = CTFramesetterSuggestFrameSizeWithConstraints(framesetter,
+                                                                   CFRange(location: 0, length: measureText.length),
+                                                                   nil,
+                                                                   CGSize(width: textWidth, height: .greatestFiniteMagnitude),
+                                                                   nil)
+        let lineHeight = ceil(CTFontGetAscent(font) + CTFontGetDescent(font) + CTFontGetLeading(font))
+        let textHeight = min(ceil(lineHeight * 3), max(lineHeight, ceil(fitting.height)))
+        let renderSize = CGSize(width: ceil(maxWidth), height: ceil(textHeight + padding * 2))
+
+        guard let image = renderSubtitleImage(text,
+                                              font: font,
+                                              paragraph: paragraph,
+                                              textRect: CGRect(x: padding, y: padding, width: textWidth, height: textHeight),
+                                              size: renderSize) else { return nil }
+        let ci = CIImage(cgImage: image)
+        let frame = subtitleFrame(size: renderSize, layout: normalized, canvas: canvas)
         let y = canvas.height - frame.origin.y - frame.height
         let rendered = ci.transformed(by: CGAffineTransform(translationX: frame.origin.x, y: y))
         subtitleCache[key] = rendered
         return rendered
-        #else
-        return nil
-        #endif
+    }
+
+    private func makeSubtitleParagraphStyle() -> CTParagraphStyle {
+        var alignment = CTTextAlignment.center
+        var lineBreak = CTLineBreakMode.byWordWrapping
+        return withUnsafePointer(to: &alignment) { alignmentPointer in
+            withUnsafePointer(to: &lineBreak) { lineBreakPointer in
+                var settings = [
+                    CTParagraphStyleSetting(spec: .alignment,
+                                            valueSize: MemoryLayout<CTTextAlignment>.size,
+                                            value: alignmentPointer),
+                    CTParagraphStyleSetting(spec: .lineBreakMode,
+                                            valueSize: MemoryLayout<CTLineBreakMode>.size,
+                                            value: lineBreakPointer)
+                ]
+                return CTParagraphStyleCreate(&settings, settings.count)
+            }
+        }
+    }
+
+    private func makeSubtitleString(_ text: String,
+                                    font: CTFont,
+                                    paragraph: CTParagraphStyle,
+                                    strokeOnly: Bool) -> NSAttributedString {
+        let strokeColor = CGColor(red: 0, green: 0, blue: 0, alpha: 1)
+        let fillColor = CGColor(red: 1, green: 1, blue: 1, alpha: 1)
+        var attributes: [NSAttributedString.Key: Any] = [
+            kCTFontAttributeName as NSAttributedString.Key: font,
+            kCTParagraphStyleAttributeName as NSAttributedString.Key: paragraph,
+            kCTForegroundColorAttributeName as NSAttributedString.Key: fillColor
+        ]
+        if strokeOnly {
+            attributes[kCTStrokeColorAttributeName as NSAttributedString.Key] = strokeColor
+            attributes[kCTStrokeWidthAttributeName as NSAttributedString.Key] = 5.0
+        }
+        return NSAttributedString(string: text, attributes: attributes)
+    }
+
+    private func renderSubtitleImage(_ text: String,
+                                     font: CTFont,
+                                     paragraph: CTParagraphStyle,
+                                     textRect: CGRect,
+                                     size: CGSize) -> CGImage? {
+        let width = max(1, Int(size.width.rounded(.up)))
+        let height = max(1, Int(size.height.rounded(.up)))
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        guard let context = CGContext(data: nil,
+                                      width: width,
+                                      height: height,
+                                      bitsPerComponent: 8,
+                                      bytesPerRow: width * 4,
+                                      space: colorSpace,
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        let bounds = CGRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height))
+        context.clear(bounds)
+        context.setAllowsAntialiasing(true)
+        context.setShouldAntialias(true)
+        context.setShadow(offset: CGSize(width: 0, height: 2), blur: 6, color: CGColor(red: 0, green: 0, blue: 0, alpha: 0.9))
+        drawSubtitle(text, font: font, paragraph: paragraph, rect: textRect, in: context, strokeOnly: true)
+        drawSubtitle(text, font: font, paragraph: paragraph, rect: textRect, in: context, strokeOnly: false)
+        return context.makeImage()
+    }
+
+    private func drawSubtitle(_ text: String,
+                              font: CTFont,
+                              paragraph: CTParagraphStyle,
+                              rect: CGRect,
+                              in context: CGContext,
+                              strokeOnly: Bool) {
+        let path = CGMutablePath()
+        path.addRect(rect)
+        let attributed = makeSubtitleString(text, font: font, paragraph: paragraph, strokeOnly: strokeOnly)
+        let framesetter = CTFramesetterCreateWithAttributedString(attributed)
+        let frame = CTFramesetterCreateFrame(framesetter, CFRange(location: 0, length: attributed.length), path, nil)
+        CTFrameDraw(frame, context)
     }
 
     private func normalizedSubtitleLayout(_ layout: SubtitleLayout) -> SubtitleLayout {

@@ -42,14 +42,14 @@ public final class LiveSpeechRecognizer {
         recognizer = SFSpeechRecognizer(locale: Locale(identifier: language.rawValue))
     }
 
-    public func start() {
+    public func start(timeOffset: TimeInterval = 0) {
         guard let recognizer, recognizer.isAvailable else {
             onText?("[语音识别不可用]", true)
             return
         }
         isRunning = true
-        startDate = Date()
-        accumulatedOffset = 0
+        startDate = Date().addingTimeInterval(-timeOffset)
+        accumulatedOffset = max(0, timeOffset)
         beginTask()
     }
 

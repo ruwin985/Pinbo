@@ -32,6 +32,11 @@ final class DualCameraSource: NSObject, CaptureSourceProviding {
     private var frontFileURL: URL?
     private var pendingFinishCount = 0
     private var isRecordingPiP = true
+    private var hasRegisteredSessionObservers = false
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
 
     // MARK: - Configure
 
@@ -40,13 +45,36 @@ final class DualCameraSource: NSObject, CaptureSourceProviding {
             state = .failed("当前设备不支持多摄（需 A12 芯片及以上）")
             throw err("MultiCam not supported")
         }
+        var configureError: Error?
+        sessionQueue.sync {
+            do {
+                try self.configureSessionOnQueue()
+            } catch {
+                configureError = error
+            }
+        }
+        if let configureError { throw configureError }
+    }
+
+    private func configureSessionOnQueue() throws {
+        if state == .configured || state == .recording { return }
+        registerSessionObserversIfNeeded()
+
         session.beginConfiguration()
-        defer { session.commitConfiguration() }
+        do {
+            try configureCamera(position: .back, output: backMovieOutput, storePreview: { self.backPreviewLayer = $0 })
+            try configureCamera(position: .front, output: frontMovieOutput, storePreview: { self.frontPreviewLayer = $0 })
+            try configureMic()
+            session.commitConfiguration()
+        } catch {
+            session.commitConfiguration()
+            throw error
+        }
 
-        try configureCamera(position: .back, output: backMovieOutput, storePreview: { self.backPreviewLayer = $0 })
-        try configureCamera(position: .front, output: frontMovieOutput, storePreview: { self.frontPreviewLayer = $0 })
-        try configureMic()
-
+        if #available(iOS 16.0, *), session.hardwareCost > 1 {
+            state = .failed("双摄硬件负载过高，请稍后重试")
+            throw err("MultiCam hardware cost is too high: \(session.hardwareCost)")
+        }
         state = .configured
     }
 
@@ -56,7 +84,9 @@ final class DualCameraSource: NSObject, CaptureSourceProviding {
         guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: position) else {
             throw err("无法获取摄像头")
         }
+        try configureDeviceForMultiCam(device)
         let input = try AVCaptureDeviceInput(device: device)
+        input.videoMinFrameDurationOverride = CMTime(value: 1, timescale: 30)
         guard session.canAddInput(input) else { throw err("无法添加摄像头输入") }
         session.addInputWithNoConnections(input)
 
@@ -92,6 +122,41 @@ final class DualCameraSource: NSObject, CaptureSourceProviding {
         storePreview(preview)
     }
 
+    private func configureDeviceForMultiCam(_ device: AVCaptureDevice) throws {
+        guard let format = Self.preferredMultiCamFormat(for: device) else {
+            throw err("当前摄像头不支持双摄格式")
+        }
+        try device.lockForConfiguration()
+        device.activeFormat = format
+        device.unlockForConfiguration()
+    }
+
+    private static func preferredMultiCamFormat(for device: AVCaptureDevice) -> AVCaptureDevice.Format? {
+        let targetPixelCount = 1_280 * 720
+        let candidates = device.formats.filter { format in
+            format.isMultiCamSupported && supportsFrameRate(30, format: format)
+        }
+        return candidates.sorted { lhs, rhs in
+            let lhsPixels = pixelCount(for: lhs)
+            let rhsPixels = pixelCount(for: rhs)
+            let lhsFits = lhsPixels <= targetPixelCount
+            let rhsFits = rhsPixels <= targetPixelCount
+            if lhsFits != rhsFits { return lhsFits }
+            return lhsFits ? lhsPixels > rhsPixels : lhsPixels < rhsPixels
+        }.first
+    }
+
+    private static func supportsFrameRate(_ frameRate: Double, format: AVCaptureDevice.Format) -> Bool {
+        format.videoSupportedFrameRateRanges.contains { range in
+            range.minFrameRate <= frameRate && frameRate <= range.maxFrameRate
+        }
+    }
+
+    private static func pixelCount(for format: AVCaptureDevice.Format) -> Int {
+        let dimensions = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
+        return Int(dimensions.width) * Int(dimensions.height)
+    }
+
     private func configureMic() throws {
         guard let device = AVCaptureDevice.default(for: .audio) else { throw err("无法获取麦克风") }
         let input = try AVCaptureDeviceInput(device: device)
@@ -120,7 +185,20 @@ final class DualCameraSource: NSObject, CaptureSourceProviding {
     // MARK: - Running
 
     func startRunning() {
-        sessionQueue.async { if !self.session.isRunning { self.session.startRunning() } }
+        startRunning(completion: nil)
+    }
+
+    func startRunning(completion: ((Bool) -> Void)?) {
+        sessionQueue.async {
+            if !self.session.isRunning {
+                self.session.startRunning()
+            }
+            let isRunning = self.session.isRunning
+            if !isRunning {
+                self.state = .failed("相机启动失败，请退出后重试")
+            }
+            DispatchQueue.main.async { completion?(isRunning) }
+        }
     }
     func stopRunning() {
         sessionQueue.async { if self.session.isRunning { self.session.stopRunning() } }
@@ -134,6 +212,13 @@ final class DualCameraSource: NSObject, CaptureSourceProviding {
 
     func startRecording(includePiP: Bool = true) {
         sessionQueue.async {
+            guard self.session.isRunning else {
+                self.session.startRunning()
+                DispatchQueue.main.async {
+                    self.state = .failed("相机正在启动，请稍后再录制")
+                }
+                return
+            }
             let dir = FileManager.default.temporaryDirectory
             let stamp = Int(Date().timeIntervalSince1970)
             let back = dir.appendingPathComponent("pinbo_back_\(stamp).mov")
@@ -160,6 +245,36 @@ final class DualCameraSource: NSObject, CaptureSourceProviding {
 
     private func err(_ m: String) -> NSError {
         NSError(domain: "Pinbo", code: -2, userInfo: [NSLocalizedDescriptionKey: m])
+    }
+
+    private func registerSessionObserversIfNeeded() {
+        guard !hasRegisteredSessionObservers else { return }
+        hasRegisteredSessionObservers = true
+        NotificationCenter.default.addObserver(self,
+                                               selector: #selector(sessionRuntimeError(_:)),
+                                               name: .AVCaptureSessionRuntimeError,
+                                               object: session)
+        NotificationCenter.default.addObserver(self,
+                                               selector: #selector(sessionWasInterrupted(_:)),
+                                               name: .AVCaptureSessionWasInterrupted,
+                                               object: session)
+        NotificationCenter.default.addObserver(self,
+                                               selector: #selector(sessionInterruptionEnded(_:)),
+                                               name: .AVCaptureSessionInterruptionEnded,
+                                               object: session)
+    }
+
+    @objc private func sessionRuntimeError(_ notification: Notification) {
+        let error = notification.userInfo?[AVCaptureSessionErrorKey] as? NSError
+        state = .failed(error?.localizedDescription ?? "相机运行异常，请退出后重试")
+    }
+
+    @objc private func sessionWasInterrupted(_ notification: Notification) {
+        state = .failed("相机被系统中断，请关闭其他占用相机的功能后重试")
+    }
+
+    @objc private func sessionInterruptionEnded(_ notification: Notification) {
+        startRunning()
     }
 }
 

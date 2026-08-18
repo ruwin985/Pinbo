@@ -91,8 +91,10 @@ public final class VideoCompositor {
             }
         }
 
-        // 画布尺寸按主画面比例设置
-        let canvas = project.aspect.main.canvasSize(longEdge: exportLongEdge)
+        // 默认比例用于录屏：保持源视频完整比例，避免把桌面裁成竖屏局部画面。
+        let canvas = project.aspect.main.isDefault
+            ? Self.canvasSize(for: mainVideoTrack, longEdge: exportLongEdge)
+            : project.aspect.main.canvasSize(longEdge: exportLongEdge)
 
         let videoComposition = AVMutableVideoComposition()
         videoComposition.renderSize = canvas
@@ -120,12 +122,16 @@ public final class VideoCompositor {
     }
 
     public func export(project: RecordingProject,
+                       includeSubtitles: Bool = true,
                        trimStart: TimeInterval = 0,
                        trimEnd: TimeInterval? = nil,
                        completion: @escaping (Result<URL, Error>) -> Void) {
         let built: Built
         do {
-            built = try build(project: project, trimStart: trimStart, trimEnd: trimEnd)
+            built = try build(project: project,
+                              includeSubtitles: includeSubtitles,
+                              trimStart: trimStart,
+                              trimEnd: trimEnd)
         } catch {
             completion(.failure(error)); return
         }
@@ -200,4 +206,23 @@ public final class VideoCompositor {
         return candidates.first { $0.isFinite && $0 > 0 } ?? 0
     }
 
+    private static func canvasSize(for track: AVAssetTrack, longEdge: CGFloat) -> CGSize {
+        let transformedSize = track.naturalSize.applying(track.preferredTransform)
+        let sourceSize = CGSize(width: abs(transformedSize.width), height: abs(transformedSize.height))
+        guard sourceSize.width > 0, sourceSize.height > 0 else {
+            return AspectRatio.default.canvasSize(longEdge: longEdge)
+        }
+        let scale = longEdge / max(sourceSize.width, sourceSize.height)
+        let width = max(2, (sourceSize.width * scale).roundedToEven())
+        let height = max(2, (sourceSize.height * scale).roundedToEven())
+        return CGSize(width: width, height: height)
+    }
+
+}
+
+private extension CGFloat {
+    func roundedToEven() -> CGFloat {
+        let roundedValue = Int(rounded())
+        return CGFloat(roundedValue.isMultiple(of: 2) ? roundedValue : roundedValue + 1)
+    }
 }

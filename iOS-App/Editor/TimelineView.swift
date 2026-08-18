@@ -8,6 +8,9 @@ final class TimelineView: UIView {
     var duration: TimeInterval = 0 { didSet { normalizeTrimRange(); setNeedsLayout() } }
     var videoThumbnails: [UIImage] = [] { didSet { setNeedsLayout(); layoutIfNeeded() } }
     var subtitleSegments: [SubtitleSegment] = [] { didSet { setNeedsLayout(); layoutIfNeeded() } }
+    var areSubtitlesVisible: Bool = true {
+        didSet { updateSubtitleVisibilityAppearance(); setNeedsLayout() }
+    }
 
     var trimStart: TimeInterval = 0 {
         didSet {
@@ -27,6 +30,7 @@ final class TimelineView: UIView {
     var onSeek: ((TimeInterval) -> Void)?
     var onTrimChanged: ((TimeInterval, TimeInterval) -> Void)?
     var onSubtitleTapped: ((UUID) -> Void)?
+    var onSubtitleVisibilityToggled: ((Bool) -> Void)?
 
     private let scrollView = UIScrollView()
     private let contentView = UIView()
@@ -39,6 +43,7 @@ final class TimelineView: UIView {
     private let leftHandle = TrimHandleView(side: .left)
     private let rightHandle = TrimHandleView(side: .right)
     private let playhead = UIView()
+    private let subtitleVisibilityButton = UIButton(type: .system)
 
     private let rulerHeight: CGFloat = 22
     private let videoHeight: CGFloat = 72
@@ -95,6 +100,16 @@ final class TimelineView: UIView {
         playhead.isUserInteractionEnabled = false
         addSubview(playhead)
 
+        subtitleVisibilityButton.setTitleColor(.white, for: .normal)
+        subtitleVisibilityButton.titleLabel?.font = .systemFont(ofSize: 12, weight: .semibold)
+        subtitleVisibilityButton.backgroundColor = UIColor(white: 0.18, alpha: 0.96)
+        subtitleVisibilityButton.layer.cornerRadius = 13
+        subtitleVisibilityButton.layer.borderWidth = 1
+        subtitleVisibilityButton.layer.borderColor = UIColor.white.withAlphaComponent(0.14).cgColor
+        subtitleVisibilityButton.addTarget(self, action: #selector(handleSubtitleVisibilityTap), for: .touchUpInside)
+        contentView.addSubview(subtitleVisibilityButton)
+        updateSubtitleVisibilityAppearance()
+
         let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap(_:)))
         contentView.addGestureRecognizer(tap)
         leftHandle.addGestureRecognizer(UIPanGestureRecognizer(target: self, action: #selector(handleLeftTrim(_:))))
@@ -121,6 +136,19 @@ final class TimelineView: UIView {
         layoutTrimViews()
 
         playhead.frame = CGRect(x: bounds.midX - 1, y: 0, width: 2, height: bounds.height)
+        layoutSubtitleVisibilityButton()
+    }
+
+    private func layoutSubtitleVisibilityButton() {
+        let buttonWidth: CGFloat = 78
+        let buttonHeight = subtitleHeight - 2
+        let rightEdge = bounds.midX - handleWidth - 8
+        let x = max(12, rightEdge - buttonWidth)
+        subtitleVisibilityButton.frame = CGRect(x: x,
+                                                y: subtitleTrack.frame.minY + 1,
+                                                width: buttonWidth,
+                                                height: buttonHeight)
+        bringSubviewToFront(playhead)
     }
 
     private func layoutRuler() {
@@ -173,6 +201,19 @@ final class TimelineView: UIView {
             label.textAlignment = .center
             subtitleTrack.addSubview(label)
         }
+        updateSubtitleVisibilityAppearance()
+    }
+
+    private func updateSubtitleVisibilityAppearance() {
+        subtitleVisibilityButton.setTitle(areSubtitlesVisible ? "隐藏字幕" : "显示字幕", for: .normal)
+        subtitleVisibilityButton.setTitleColor(areSubtitlesVisible ? .white : UIColor(red: 0.32, green: 0.62, blue: 1, alpha: 1), for: .normal)
+        subtitleTrack.alpha = areSubtitlesVisible ? 1 : 0.38
+        subtitleTrack.subviews.forEach { $0.alpha = areSubtitlesVisible ? 1 : 0.28 }
+    }
+
+    @objc private func handleSubtitleVisibilityTap() {
+        areSubtitlesVisible.toggle()
+        onSubtitleVisibilityToggled?(areSubtitlesVisible)
     }
 
     private func layoutTrimViews() {
@@ -196,7 +237,7 @@ final class TimelineView: UIView {
 
     @objc private func handleTap(_ gesture: UITapGestureRecognizer) {
         let point = gesture.location(in: contentView)
-        if subtitleTrack.frame.contains(point) {
+        if areSubtitlesVisible, subtitleTrack.frame.contains(point) {
             let localX = point.x - subtitleTrack.frame.minX
             if let segment = subtitleSegments.first(where: { segment in
                 let start = clamped(segment.startTime, lower: 0, upper: duration)

@@ -26,10 +26,10 @@ public final class DraftStore {
         try fm.createDirectory(at: folder, withIntermediateDirectories: true)
 
         if let main = p.mainVideoURL {
-            p.mainVideoURL = try persistFile(main, into: folder, name: "main.mov")
+            p.mainVideoURL = try persistFile(main, into: folder, basename: "main")
         }
         if let pip = p.pipVideoURL {
-            p.pipVideoURL = try persistFile(pip, into: folder, name: "pip.mov")
+            p.pipVideoURL = try persistFile(pip, into: folder, basename: "pip")
         }
 
         let data = try JSONEncoder().encode(p)
@@ -38,12 +38,21 @@ public final class DraftStore {
     }
 
     /// 若文件已在草稿目录内则不复制，否则复制进目标目录。
-    private func persistFile(_ src: URL, into folder: URL, name: String) throws -> URL {
+    private func persistFile(_ src: URL, into folder: URL, basename: String) throws -> URL {
+        let ext = src.pathExtension.isEmpty ? "mov" : src.pathExtension
+        let name = "\(basename).\(ext)"
         let dest = folder.appendingPathComponent(name)
         if src.standardizedFileURL == dest.standardizedFileURL { return dest }
-        if fm.fileExists(atPath: dest.path) { try? fm.removeItem(at: dest) }
+        try removeExistingFiles(in: folder, basename: basename)
         try fm.copyItem(at: src, to: dest)
         return dest
+    }
+
+    private func removeExistingFiles(in folder: URL, basename: String) throws {
+        let files = (try? fm.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? []
+        for file in files where file.deletingPathExtension().lastPathComponent == basename {
+            try fm.removeItem(at: file)
+        }
     }
 
     /// 载入全部草稿，按创建时间倒序。
@@ -56,19 +65,25 @@ public final class DraftStore {
             guard let data = try? Data(contentsOf: json),
                   var p = try? JSONDecoder().decode(RecordingProject.self, from: data) else { continue }
             // 修正为当前绝对路径（沙盒路径可能变化，用文件名重建）
-            p.mainVideoURL = existingFile(sub, "main.mov")
-            p.pipVideoURL = existingFile(sub, "pip.mov")
+            p.mainVideoURL = existingFile(sub, basename: "main")
+            p.pipVideoURL = existingFile(sub, basename: "pip")
             result.append(p)
         }
         return result.sorted { $0.createdAt > $1.createdAt }
     }
 
-    private func existingFile(_ folder: URL, _ name: String) -> URL? {
-        let url = folder.appendingPathComponent(name)
-        return fm.fileExists(atPath: url.path) ? url : nil
+    private func existingFile(_ folder: URL, basename: String) -> URL? {
+        let candidates = ["mp4", "mov", "m4v"].map { folder.appendingPathComponent("\(basename).\($0)") }
+        if let existing = candidates.first(where: { fm.fileExists(atPath: $0.path) }) {
+            return existing
+        }
+        let files = (try? fm.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? []
+        return files.first { $0.deletingPathExtension().lastPathComponent == basename }
     }
 
-    public func delete(_ id: UUID) {
-        try? fm.removeItem(at: dir(for: id))
+    public func delete(_ id: UUID) throws {
+        let folder = dir(for: id)
+        guard fm.fileExists(atPath: folder.path) else { return }
+        try fm.removeItem(at: folder)
     }
 }

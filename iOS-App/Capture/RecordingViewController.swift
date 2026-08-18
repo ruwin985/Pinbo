@@ -240,8 +240,15 @@ final class RecordingViewController: UIViewController {
             statusLabel.text = "未授权语音识别，字幕不可用"
         }
 
-        source.startRunning()
-        statusLabel.text = aspect.isPiPEnabled ? "就绪：拖动/双指缩放小窗，点按开始录制" : "就绪：点按开始录制"
+        recordButton.isEnabled = false
+        statusLabel.text = "相机启动中…"
+        source.startRunning { [weak self] isRunning in
+            guard let self else { return }
+            self.recordButton.isEnabled = isRunning
+            if isRunning {
+                self.statusLabel.text = self.aspect.isPiPEnabled ? "就绪：拖动/双指缩放小窗，点按开始录制" : "就绪：点按开始录制"
+            }
+        }
     }
 
     // MARK: - Recording

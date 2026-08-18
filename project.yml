@@ -2,7 +2,8 @@ name: Pinbo
 options:
   bundleIdPrefix: com.pinbo
   deploymentTarget:
-    iOS: "14.0"
+    iOS: "16.0"
+    macOS: "12.3"
   createIntermediateGroups: true
 
 settings:
@@ -18,16 +19,41 @@ packages:
     url: https://github.com/SnapKit/SnapKit.git
     from: 6.0.0
 
+schemes:
+  Pinbo:
+    build:
+      targets:
+        Pinbo: all
+    run:
+      config: Debug
+    archive:
+      config: Release
+
+  PinboMac:
+    build:
+      targets:
+        PinboMac: all
+    run:
+      config: Debug
+    archive:
+      config: Release
+
 targets:
   Pinbo:
     type: application
     platform: iOS
-    deploymentTarget: "14.0"
+    deploymentTarget: "16.0"
     sources:
       - path: Core
       - path: iOS-App
+        excludes:
+          - "**/Info.plist"
+          - "**/*.entitlements"
+          - "ScreenBroadcastExtension/**"
     dependencies:
       - package: SnapKit
+      - target: PinboScreenBroadcastExtension
+        embed: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.pinbo.app
@@ -36,3 +62,46 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ENABLE_BITCODE: NO
         GENERATE_INFOPLIST_FILE: NO
+
+  PinboScreenBroadcastExtension:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "16.0"
+    sources:
+      - path: iOS-App/ScreenBroadcastExtension
+        excludes:
+          - "**/Info.plist"
+          - "**/*.entitlements"
+    settings:
+      base:
+        PRODUCT_NAME: Screen Recorder
+        MARKETING_VERSION: "1.0"
+        PRODUCT_BUNDLE_IDENTIFIER: com.pinbo.app.ScreenBroadcastExtension
+        PRODUCT_BUNDLE_PACKAGE_TYPE: XPC!
+        INFOPLIST_FILE: iOS-App/ScreenBroadcastExtension/Info.plist
+        TARGETED_DEVICE_FAMILY: "1"
+        GENERATE_INFOPLIST_FILE: NO
+        SKIP_INSTALL: YES
+        APPLICATION_EXTENSION_API_ONLY: YES
+
+  PinboMac:
+    type: application
+    platform: macOS
+    deploymentTarget: "12.3"
+    sources:
+      - path: Core
+      - path: macOS-App
+        excludes:
+          - "**/Info.plist"
+          - "**/*.entitlements"
+    dependencies:
+      - package: SnapKit
+    settings:
+      base:
+        PRODUCT_NAME: Pinbo
+        PRODUCT_BUNDLE_IDENTIFIER: com.pinbo.mac
+        INFOPLIST_FILE: macOS-App/Info.plist
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_ENTITLEMENTS: macOS-App/PinboMac.entitlements
+        ENABLE_HARDENED_RUNTIME: YES

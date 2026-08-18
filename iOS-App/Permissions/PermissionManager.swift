@@ -14,7 +14,7 @@ enum PermissionManager {
         AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
     }
     static var photoGranted: Bool {
-        let s = PHPhotoLibrary.authorizationStatus(for: .addOnly)
+        let s = PHPhotoLibrary.authorizationStatus(for: .readWrite)
         return s == .authorized || s == .limited
     }
 
@@ -36,7 +36,7 @@ enum PermissionManager {
     }
 
     static func requestPhoto(_ completion: @escaping (Bool) -> Void) {
-        PHPhotoLibrary.requestAuthorization(for: .addOnly) { s in
+        PHPhotoLibrary.requestAuthorization(for: .readWrite) { s in
             DispatchQueue.main.async { completion(s == .authorized || s == .limited) }
         }
     }
