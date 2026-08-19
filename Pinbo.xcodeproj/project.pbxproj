@@ -40,12 +40,13 @@
 		64D53F70A485FE7E4295C5F8 /* SampleHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99711E3ED9A3EF5BE66AC9C8 /* SampleHandler.swift */; };
 		658AE075DCF9AE6712F9D0AB /* SubtitleSegmenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80C149840162F6F4D3C6C740 /* SubtitleSegmenter.swift */; };
 		683E6232FC6A6075F14B503B /* ScreenCameraSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40F11DD118493C2A251510BB /* ScreenCameraSource.swift */; };
-		6AE33B6915EF79D6ABF5B513 /* Screen Recorder.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = B8CBB88D87FBFC22462B5A9F /* Screen Recorder.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		6AE33B6915EF79D6ABF5B513 /* PinboScreenBroadcastExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = B8CBB88D87FBFC22462B5A9F /* PinboScreenBroadcastExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		6C7990747CBEC96DF4A0B1B2 /* DraggablePiPView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A144BFAC76AE722E5A5679B /* DraggablePiPView.swift */; };
 		7BBA496D2AE67F598D8ACD12 /* RecordingViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F6A393549717AC9447F5A18 /* RecordingViewController.swift */; };
 		89CBE54D3E5534D094BE1510 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 780EE4168B0B518C7C186477 /* AppDelegate.swift */; };
 		8ABEF9063D0511E92F8FF788 /* SheetCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = C851115FE9FA42E26FE76C62 /* SheetCard.swift */; };
 		8FF866A12C0CC7B0B9ECEEF9 /* ScreenCaptureTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9D77C2E4C36ED2EB8DC6BE7 /* ScreenCaptureTarget.swift */; };
+		97805FE8CE4B9622F3EFD88F /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = DEAECB17B03995E886653314 /* LaunchScreen.storyboard */; };
 		A0689A9963E4E9C3CA2B054F /* AVCapturePreviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5EA023358DDCDDE1DDDB007 /* AVCapturePreviewView.swift */; };
 		A214391E514FB7E103F12081 /* ScreenRecordingViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62EAE7E4F985959F46148B1C /* ScreenRecordingViewController.swift */; };
 		A8F90AA6673589A7604B4E17 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 5218AD88A6BE5B005AE0965E /* Assets.xcassets */; };
@@ -81,7 +82,7 @@
 			dstPath = "";
 			dstSubfolderSpec = 13;
 			files = (
-				6AE33B6915EF79D6ABF5B513 /* Screen Recorder.appex in Embed Foundation Extensions */,
+				6AE33B6915EF79D6ABF5B513 /* PinboScreenBroadcastExtension.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -121,10 +122,10 @@
 		9F6A393549717AC9447F5A18 /* RecordingViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingViewController.swift; sourceTree = "<group>"; };
 		A4DB8F61E99C81121F1E9571 /* SampleBufferMovieWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SampleBufferMovieWriter.swift; sourceTree = "<group>"; };
 		A6080E51086B0A4D0791C0D0 /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
-		B2EEB6C1D3E1BC0E3927B0C4 /* Pinbo.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Pinbo.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		B2EEB6C1D3E1BC0E3927B0C4 /* PinboMac.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PinboMac.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B6A9156AF436B03449E75641 /* PhotoLibrarySaver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoLibrarySaver.swift; sourceTree = "<group>"; };
 		B7506DE4AFCDC89864BF894A /* HomeViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeViewController.swift; sourceTree = "<group>"; };
-		B8CBB88D87FBFC22462B5A9F /* Screen Recorder.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = "Screen Recorder.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
+		B8CBB88D87FBFC22462B5A9F /* PinboScreenBroadcastExtension.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = PinboScreenBroadcastExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		B9A55C5F266E71BD6EF8FC82 /* SourcePickerViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourcePickerViewController.swift; sourceTree = "<group>"; };
 		BC2D345B4EBEDA79A225B41D /* TimelineView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineView.swift; sourceTree = "<group>"; };
 		C5EA023358DDCDDE1DDDB007 /* AVCapturePreviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AVCapturePreviewView.swift; sourceTree = "<group>"; };
@@ -132,7 +133,8 @@
 		C9D77C2E4C36ED2EB8DC6BE7 /* ScreenCaptureTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenCaptureTarget.swift; sourceTree = "<group>"; };
 		D56F7585E66471B8DED19FF4 /* CaptureSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureSource.swift; sourceTree = "<group>"; };
 		DBCE30DF3053506888EC11B4 /* EditorViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorViewController.swift; sourceTree = "<group>"; };
-		DDB54FC11F3F9C845EA38703 /* Pinbo.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Pinbo.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		DDB54FC11F3F9C845EA38703 /* Pinbo.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Pinbo.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		DEAECB17B03995E886653314 /* LaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = LaunchScreen.storyboard; sourceTree = "<group>"; };
 		E0104C96D0BD960844FF2C9B /* Project.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Project.swift; sourceTree = "<group>"; };
 		E150CC047C4F5DBF7ADBCB95 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
 		FB6CCB08381AE825D3AEB346 /* MacHomeViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacHomeViewController.swift; sourceTree = "<group>"; };
@@ -263,6 +265,7 @@
 			isa = PBXGroup;
 			children = (
 				33C03C961FB093044A6C98D2 /* Assets.xcassets */,
+				DEAECB17B03995E886653314 /* LaunchScreen.storyboard */,
 				47CCC87579D47FB062B5F7E5 /* App */,
 				7EB900E5DD197B7F0111D061 /* Capture */,
 				384038031A07296C36FE7380 /* Editor */,
@@ -347,8 +350,8 @@
 			isa = PBXGroup;
 			children = (
 				DDB54FC11F3F9C845EA38703 /* Pinbo.app */,
-				B2EEB6C1D3E1BC0E3927B0C4 /* Pinbo.app */,
-				B8CBB88D87FBFC22462B5A9F /* Screen Recorder.appex */,
+				B2EEB6C1D3E1BC0E3927B0C4 /* PinboMac.app */,
+				B8CBB88D87FBFC22462B5A9F /* PinboScreenBroadcastExtension.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -418,7 +421,7 @@
 			packageProductDependencies = (
 			);
 			productName = PinboScreenBroadcastExtension;
-			productReference = B8CBB88D87FBFC22462B5A9F /* Screen Recorder.appex */;
+			productReference = B8CBB88D87FBFC22462B5A9F /* PinboScreenBroadcastExtension.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
 		FFBB87CDF3F9ADA5E2AB7A25 /* PinboMac */ = {
@@ -438,7 +441,7 @@
 				1083D70AA6DC1CEC2661BC98 /* SnapKit */,
 			);
 			productName = PinboMac;
-			productReference = B2EEB6C1D3E1BC0E3927B0C4 /* Pinbo.app */;
+			productReference = B2EEB6C1D3E1BC0E3927B0C4 /* PinboMac.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -451,12 +454,15 @@
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
 					45DFA93173886552FBFC1815 = {
+						DevelopmentTeam = KL7QTYJY8K;
 						ProvisioningStyle = Automatic;
 					};
 					F21A81EE79D190B7C27B5401 = {
+						DevelopmentTeam = KL7QTYJY8K;
 						ProvisioningStyle = Automatic;
 					};
 					FFBB87CDF3F9ADA5E2AB7A25 = {
+						DevelopmentTeam = KL7QTYJY8K;
 						ProvisioningStyle = Automatic;
 					};
 				};
@@ -491,6 +497,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				404B4DD6ED935CC9054F9C60 /* Assets.xcassets in Resources */,
+				97805FE8CE4B9622F3EFD88F /* LaunchScreen.storyboard in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -591,7 +598,6 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = YES;
-				DEVELOPMENT_TEAM = KL7QTYJY8K;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = "iOS-App/ScreenBroadcastExtension/Info.plist";
 				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
@@ -615,7 +621,6 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				DEVELOPMENT_TEAM = KL7QTYJY8K;
 				ENABLE_BITCODE = NO;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = "iOS-App/Info.plist";
@@ -667,7 +672,7 @@
 				COPY_PHASE_STRIP = NO;
 				CURRENT_PROJECT_VERSION = 1;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = KL7QTYJY8K;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
@@ -695,7 +700,6 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				DEVELOPMENT_TEAM = KL7QTYJY8K;
 				ENABLE_BITCODE = NO;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = "iOS-App/Info.plist";
@@ -716,7 +720,6 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = "macOS-App/PinboMac.entitlements";
 				COMBINE_HIDPI_IMAGES = YES;
-				DEVELOPMENT_TEAM = KL7QTYJY8K;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = "macOS-App/Info.plist";
@@ -737,7 +740,6 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = "macOS-App/PinboMac.entitlements";
 				COMBINE_HIDPI_IMAGES = YES;
-				DEVELOPMENT_TEAM = KL7QTYJY8K;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = "macOS-App/Info.plist";
@@ -756,7 +758,6 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = YES;
-				DEVELOPMENT_TEAM = KL7QTYJY8K;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = "iOS-App/ScreenBroadcastExtension/Info.plist";
 				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
@@ -812,7 +813,7 @@
 				COPY_PHASE_STRIP = NO;
 				CURRENT_PROJECT_VERSION = 1;
 				DEBUG_INFORMATION_FORMAT = dwarf;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = KL7QTYJY8K;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;

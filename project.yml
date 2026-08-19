@@ -11,7 +11,7 @@ settings:
     SWIFT_VERSION: "5.0"
     MARKETING_VERSION: "0.1.0"
     CURRENT_PROJECT_VERSION: "1"
-    DEVELOPMENT_TEAM: "" # 填入你的 Apple 开发者 Team ID 才能真机运行
+    DEVELOPMENT_TEAM: KL7QTYJY8K
     CODE_SIGN_STYLE: Automatic
 
 packages:
