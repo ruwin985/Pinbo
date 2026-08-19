@@ -8,17 +8,23 @@ final class AspectSettingsViewController: UIViewController {
     private var settings: AspectSettings
 
     private let mainSegmented = UISegmentedControl(items: AspectRatio.allCases.map { $0.rawValue })
+    private let splitSwitch = UISwitch()
     private let pipSwitch = UISwitch()
     private let pipSegmented = UISegmentedControl(items: AspectRatio.allCases.map { $0.rawValue })
     private let cornerSlider = UISlider()
     private let cornerValueLabel = UILabel()
     private lazy var mainRatioSection = makeControlSection(title: "大窗比例（主画面）", control: mainSegmented)
+    private lazy var splitSwitchRow = SheetCard.makeRow("上下分屏", splitSwitch)
+    private lazy var splitHintSection = makeHintSection("默认前摄在上、后摄在下；长按任一半屏可切换上下顺序。")
     private lazy var pipSwitchRow = SheetCard.makeRow("前摄像头小窗口", pipSwitch)
     private lazy var pipRatioSection = makeControlSection(title: "小窗比例（画中画）", control: pipSegmented)
     private lazy var cornerSection = makeSliderSection(title: "小窗圆角", slider: cornerSlider, valueLabel: cornerValueLabel)
 
     init(settings: AspectSettings) {
         self.settings = settings
+        if self.settings.isSplitScreenEnabled {
+            self.settings.isPiPEnabled = false
+        }
         super.init(nibName: nil, bundle: nil)
     }
     required init?(coder: NSCoder) { fatalError() }
@@ -32,6 +38,10 @@ final class AspectSettingsViewController: UIViewController {
         mainSegmented.selectedSegmentIndex = AspectRatio.allCases.firstIndex(of: settings.main) ?? 0
         applySegmentedStyle(mainSegmented)
         mainSegmented.addTarget(self, action: #selector(valueChanged), for: .valueChanged)
+
+        splitSwitch.isOn = settings.isSplitScreenEnabled
+        splitSwitch.onTintColor = .systemGreen
+        splitSwitch.addTarget(self, action: #selector(valueChanged), for: .valueChanged)
 
         pipSwitch.isOn = settings.isPiPEnabled
         pipSwitch.onTintColor = .systemGreen
@@ -53,6 +63,8 @@ final class AspectSettingsViewController: UIViewController {
         updateCornerLabel()
 
         card.addContent(mainRatioSection)
+        card.addContent(splitSwitchRow)
+        card.addContent(splitHintSection)
         card.addContent(pipSwitchRow)
         card.addContent(pipRatioSection)
         card.addContent(cornerSection)
@@ -73,6 +85,19 @@ final class AspectSettingsViewController: UIViewController {
 
         control.snp.makeConstraints { make in
             make.height.equalTo(34)
+        }
+        return container
+    }
+
+    private func makeHintSection(_ text: String) -> UIView {
+        let container = makeSectionContainer()
+        let label = SheetCard.makeLabel(text)
+        label.numberOfLines = 0
+        label.textColor = UIColor.white.withAlphaComponent(0.62)
+        container.addSubview(label)
+
+        label.snp.makeConstraints { make in
+            make.edges.equalToSuperview().inset(14)
         }
         return container
     }
@@ -165,14 +190,24 @@ final class AspectSettingsViewController: UIViewController {
     }
 
     private func updatePiPControlsVisibility() {
+        let isSplitScreenEnabled = settings.isSplitScreenEnabled
         let isPiPEnabled = settings.isPiPEnabled
-        pipRatioSection.isHidden = !isPiPEnabled
-        cornerSection.isHidden = !isPiPEnabled
+        splitHintSection.isHidden = !isSplitScreenEnabled
+        pipSwitch.isEnabled = !isSplitScreenEnabled
+        pipSwitchRow.alpha = isSplitScreenEnabled ? 0.45 : 1
+        pipRatioSection.isHidden = !isPiPEnabled || isSplitScreenEnabled
+        cornerSection.isHidden = !isPiPEnabled || isSplitScreenEnabled
     }
 
     @objc private func valueChanged() {
         settings.main = AspectRatio.allCases[mainSegmented.selectedSegmentIndex]
-        settings.isPiPEnabled = pipSwitch.isOn
+        settings.isSplitScreenEnabled = splitSwitch.isOn
+        if settings.isSplitScreenEnabled {
+            settings.isPiPEnabled = false
+            pipSwitch.isOn = false
+        } else {
+            settings.isPiPEnabled = pipSwitch.isOn
+        }
         settings.pip.aspect = AspectRatio.allCases[pipSegmented.selectedSegmentIndex]
         settings.pip.cornerRatio = CGFloat(cornerSlider.value)
         updateCornerLabel()

@@ -60,6 +60,9 @@ final class PiPCompositionInstruction: NSObject, AVVideoCompositionInstructionPr
     var pipKeyframes: [PiPKeyframe] = []
     var pipAspect: AspectRatio = .default
     var pipCornerRatio: CGFloat = 0.12
+    var isSplitScreenEnabled: Bool = false
+    var splitScreenOrder: CameraSplitOrder = .frontTop
+    var splitScreenKeyframes: [SplitScreenKeyframe] = []
     var totalDuration: Double = 0
     var subtitles: [SubtitleSegment] = []
     var subtitleLayout: SubtitleLayout = SubtitleLayout()
@@ -127,27 +130,42 @@ final class PiPVideoCompositor: NSObject, AVVideoCompositing {
 
             var output = CIImage(color: .black).cropped(to: CGRect(origin: .zero, size: canvas))
 
-            // 主画面 aspectFill（先按方向摆正）
-            if let mainBuf = request.sourceFrame(byTrackID: instruction.mainTrackID) {
-                var mainImg = CIImage(cvPixelBuffer: mainBuf)
-                mainImg = self.oriented(mainImg, transform: instruction.mainTransform)
-                let main = self.aspectFill(mainImg, into: canvas)
-                output = main.composited(over: output)
-            }
+            if instruction.isSplitScreenEnabled {
+                let order = self.splitScreenOrder(at: time,
+                                                  keyframes: instruction.splitScreenKeyframes,
+                                                  fallback: instruction.splitScreenOrder)
+                let frames = self.splitFrames(for: order, in: canvas)
+                if let mainBuf = request.sourceFrame(byTrackID: instruction.mainTrackID) {
+                    var mainImg = CIImage(cvPixelBuffer: mainBuf)
+                    mainImg = self.oriented(mainImg, transform: instruction.mainTransform)
+                    output = self.place(mainImg, in: frames.back, canvas: canvas).composited(over: output)
+                }
+                if let pipID = instruction.pipTrackID,
+                   let pipBuf = request.sourceFrame(byTrackID: pipID) {
+                    var pipImg = CIImage(cvPixelBuffer: pipBuf)
+                    pipImg = self.oriented(pipImg, transform: instruction.pipTransform)
+                    output = self.place(pipImg, in: frames.front, canvas: canvas).composited(over: output)
+                }
+            } else {
+                if let mainBuf = request.sourceFrame(byTrackID: instruction.mainTrackID) {
+                    var mainImg = CIImage(cvPixelBuffer: mainBuf)
+                    mainImg = self.oriented(mainImg, transform: instruction.mainTransform)
+                    let main = self.aspectFill(mainImg, into: canvas)
+                    output = main.composited(over: output)
+                }
 
-            // 画中画：定位到当前关键帧 + 圆角
-            if let pipID = instruction.pipTrackID,
-               let pipBuf = request.sourceFrame(byTrackID: pipID),
-               let kf = self.keyframe(at: time, keyframes: instruction.pipKeyframes) {
-                let frame = self.pipFrame(for: kf, aspect: instruction.pipAspect, in: canvas)
-                var pipImg = CIImage(cvPixelBuffer: pipBuf)
-                pipImg = self.oriented(pipImg, transform: instruction.pipTransform)
-                var pip = self.aspectFill(pipImg, into: frame.size)
-                pip = self.roundedMask(pip, size: frame.size, cornerRatio: instruction.pipCornerRatio)
-                // CoreImage 原点左下，需翻转 y
-                let ty = canvas.height - frame.origin.y - frame.size.height
-                pip = pip.transformed(by: CGAffineTransform(translationX: frame.origin.x, y: ty))
-                output = pip.composited(over: output)
+                if let pipID = instruction.pipTrackID,
+                   let pipBuf = request.sourceFrame(byTrackID: pipID),
+                   let kf = self.keyframe(at: time, keyframes: instruction.pipKeyframes) {
+                    let frame = self.pipFrame(for: kf, aspect: instruction.pipAspect, in: canvas)
+                    var pipImg = CIImage(cvPixelBuffer: pipBuf)
+                    pipImg = self.oriented(pipImg, transform: instruction.pipTransform)
+                    var pip = self.aspectFill(pipImg, into: frame.size)
+                    pip = self.roundedMask(pip, size: frame.size, cornerRatio: instruction.pipCornerRatio)
+                    let ty = canvas.height - frame.origin.y - frame.size.height
+                    pip = pip.transformed(by: CGAffineTransform(translationX: frame.origin.x, y: ty))
+                    output = pip.composited(over: output)
+                }
             }
 
             // 字幕
@@ -175,6 +193,16 @@ final class PiPVideoCompositor: NSObject, AVVideoCompositing {
         return chosen
     }
 
+    private func splitScreenOrder(at time: Double,
+                                  keyframes: [SplitScreenKeyframe],
+                                  fallback: CameraSplitOrder) -> CameraSplitOrder {
+        let sorted = keyframes.sorted { $0.time < $1.time }
+        guard !sorted.isEmpty else { return fallback }
+        var chosen = sorted[0]
+        for kf in sorted where kf.time <= time { chosen = kf }
+        return chosen.order
+    }
+
     /// 按轨道 preferredTransform 对应的 EXIF 方向把帧摆正。
     private func oriented(_ image: CIImage, transform: VideoTrackTransform?) -> CIImage {
         guard let orientation = transform?.orientation else { return image }
@@ -186,6 +214,19 @@ final class PiPVideoCompositor: NSObject, AVVideoCompositing {
         let h = aspect.isDefault ? kf.size.height * size.height : w / aspect.ratio
         return CGRect(x: kf.center.x * size.width - w / 2,
                       y: kf.center.y * size.height - h / 2, width: w, height: h)
+    }
+
+    private func splitFrames(for order: CameraSplitOrder, in size: CGSize) -> (front: CGRect, back: CGRect) {
+        let halfHeight = size.height / 2
+        let top = CGRect(x: 0, y: 0, width: size.width, height: halfHeight)
+        let bottom = CGRect(x: 0, y: halfHeight, width: size.width, height: size.height - halfHeight)
+        return order == .frontTop ? (front: top, back: bottom) : (front: bottom, back: top)
+    }
+
+    private func place(_ image: CIImage, in frame: CGRect, canvas: CGSize) -> CIImage {
+        let fitted = aspectFill(image, into: frame.size)
+        let y = canvas.height - frame.origin.y - frame.height
+        return fitted.transformed(by: CGAffineTransform(translationX: frame.origin.x, y: y))
     }
 
     private func aspectFill(_ image: CIImage, into size: CGSize) -> CIImage {

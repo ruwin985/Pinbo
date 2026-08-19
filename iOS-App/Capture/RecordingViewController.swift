@@ -9,6 +9,7 @@ final class RecordingViewController: UIViewController {
     private let speech = LiveSpeechRecognizer(language: .chinese)
 
     private var pipView: PiPPreviewView?
+    private var frontSplitPreviewContainer: PreviewLayerView?
 
     private let subtitleLabel = UILabel()
     private let recordButton = UIButton(type: .system)
@@ -18,6 +19,7 @@ final class RecordingViewController: UIViewController {
     private var promptPanel: TeleprompterPanelView?
 
     private var pipTrack: [PiPKeyframe] = []
+    private var splitScreenTrack: [SplitScreenKeyframe] = []
     private var subtitleTrack: [SubtitleSegment] = []
     private var recordStartTime: Date?
     private var recordingDurationTimer: Timer?
@@ -211,6 +213,7 @@ final class RecordingViewController: UIViewController {
             let dismissKeyboardTap = UITapGestureRecognizer(target: self, action: #selector(dismissPromptKeyboard))
             dismissKeyboardTap.cancelsTouchesInView = false
             container.addGestureRecognizer(dismissKeyboardTap)
+            addSplitOrderGesture(to: container)
             view.insertSubview(container, at: 0)
             container.snp.makeConstraints { make in
                 make.edges.equalToSuperview()
@@ -223,7 +226,7 @@ final class RecordingViewController: UIViewController {
             DispatchQueue.main.async { self.applyMainAspectMask() }
         }
 
-        updatePiPVisibility()
+        updateCameraPresentation()
 
         // 字幕
         if speechGranted {
@@ -246,7 +249,7 @@ final class RecordingViewController: UIViewController {
             guard let self else { return }
             self.recordButton.isEnabled = isRunning
             if isRunning {
-                self.statusLabel.text = self.aspect.isPiPEnabled ? "就绪：拖动/双指缩放小窗，点按开始录制" : "就绪：点按开始录制"
+                self.statusLabel.text = self.readyStatusText()
             }
         }
     }
@@ -264,12 +267,14 @@ final class RecordingViewController: UIViewController {
         default:
             recordStartTime = Date()
             pipTrack.removeAll()
+            splitScreenTrack.removeAll()
             subtitleTrack.removeAll()
             subtitleSessionActive = true
             pendingFinish = nil
             startRecordingDurationTimer()
             recordPiPKeyframe()
-            source.startRecording(includePiP: aspect.isPiPEnabled)
+            recordSplitScreenKeyframe()
+            source.startRecording(includePiP: aspect.recordsSecondaryVideo)
             speech.start()
             promptPanel?.startAutoScroll()
             applyRecordButtonState(isRecording: true)
@@ -331,6 +336,12 @@ final class RecordingViewController: UIViewController {
                                     cornerRadius: layout.cornerRadius))
     }
 
+    private func recordSplitScreenKeyframe() {
+        guard aspect.isSplitScreenEnabled else { return }
+        let t = recordStartTime.map { Date().timeIntervalSince($0) } ?? 0
+        splitScreenTrack.append(SplitScreenKeyframe(time: t, order: aspect.splitOrder))
+    }
+
     // MARK: - Settings sheets
 
     @objc private func closeTapped() {
@@ -346,14 +357,23 @@ final class RecordingViewController: UIViewController {
         promptPanel?.dismissKeyboard()
     }
 
+    @objc private func splitPreviewLongPressed(_ gesture: UILongPressGestureRecognizer) {
+        guard aspect.isSplitScreenEnabled, gesture.state == .began else { return }
+        aspect.splitOrder.toggle()
+        updateSplitPreviewLayout(animated: true)
+        recordSplitScreenKeyframe()
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+    }
+
     @objc private func aspectTapped() {
         let sheet = AspectSettingsViewController(settings: aspect)
         sheet.onChange = { [weak self] settings in
             self?.aspect = settings
-            self?.updatePiPVisibility()
+            self?.updateCameraPresentation()
             self?.applyPiPStyle()
             self?.applyMainAspectMask()
             self?.recordPiPKeyframe()
+            self?.recordSplitScreenKeyframe()
         }
         presentSheet(sheet)
     }
@@ -428,7 +448,7 @@ final class RecordingViewController: UIViewController {
         let bounds = container.bounds
         guard bounds.width > 0, bounds.height > 0 else { return }
         mainAspectMask.frame = bounds
-        guard !aspect.main.isDefault else {
+        guard !aspect.isSplitScreenEnabled, !aspect.main.isDefault else {
             mainAspectMask.path = nil
             return
         }
@@ -472,8 +492,25 @@ final class RecordingViewController: UIViewController {
         pip.layer.cornerRadius = maxRadius * style.cornerRatio
     }
 
+    private func updateCameraPresentation() {
+        if aspect.isSplitScreenEnabled {
+            pipView?.removeFromSuperview()
+            pipView = nil
+            ensureSplitPreviewView()
+            updateSplitPreviewLayout(animated: false)
+        } else {
+            frontSplitPreviewContainer?.removeFromSuperview()
+            frontSplitPreviewContainer = nil
+            updatePiPVisibility()
+            updateMainPreviewLayoutForFullScreen()
+        }
+        if source.state == .configured {
+            statusLabel.text = readyStatusText()
+        }
+    }
+
     private func updatePiPVisibility() {
-        if aspect.isPiPEnabled {
+        if aspect.isPiPEnabled && !aspect.isSplitScreenEnabled {
             ensurePiPView()
             pipView?.isHidden = false
         } else {
@@ -481,6 +518,73 @@ final class RecordingViewController: UIViewController {
             pipView = nil
             pipTrack.removeAll()
         }
+    }
+
+    private func ensureSplitPreviewView() {
+        guard frontSplitPreviewContainer == nil, let frontLayer = source.makePiPPreviewLayer() else { return }
+        let container = PreviewLayerView(previewLayer: frontLayer)
+        addSplitOrderGesture(to: container)
+        if let mainPreviewContainer {
+            view.insertSubview(container, aboveSubview: mainPreviewContainer)
+        } else {
+            view.insertSubview(container, at: 0)
+        }
+        frontSplitPreviewContainer = container
+    }
+
+    private func updateMainPreviewLayoutForFullScreen() {
+        guard let mainPreviewContainer else { return }
+        mainPreviewContainer.snp.remakeConstraints { make in
+            make.edges.equalToSuperview()
+        }
+    }
+
+    private func updateSplitPreviewLayout(animated: Bool) {
+        guard let mainPreviewContainer, let frontSplitPreviewContainer else { return }
+        let animations = {
+            if self.aspect.splitOrder == .frontTop {
+                frontSplitPreviewContainer.snp.remakeConstraints { make in
+                    make.top.leading.trailing.equalToSuperview()
+                    make.height.equalToSuperview().multipliedBy(0.5)
+                }
+                mainPreviewContainer.snp.remakeConstraints { make in
+                    make.leading.trailing.bottom.equalToSuperview()
+                    make.top.equalTo(frontSplitPreviewContainer.snp.bottom)
+                }
+            } else {
+                mainPreviewContainer.snp.remakeConstraints { make in
+                    make.top.leading.trailing.equalToSuperview()
+                    make.height.equalToSuperview().multipliedBy(0.5)
+                }
+                frontSplitPreviewContainer.snp.remakeConstraints { make in
+                    make.leading.trailing.bottom.equalToSuperview()
+                    make.top.equalTo(mainPreviewContainer.snp.bottom)
+                }
+            }
+            self.view.layoutIfNeeded()
+            self.applyMainAspectMask()
+        }
+        if animated {
+            UIView.animate(withDuration: 0.24, delay: 0, options: [.curveEaseInOut], animations: animations)
+        } else {
+            animations()
+        }
+    }
+
+    private func addSplitOrderGesture(to preview: UIView) {
+        let longPress = UILongPressGestureRecognizer(target: self, action: #selector(splitPreviewLongPressed(_:)))
+        longPress.minimumPressDuration = 0.45
+        preview.addGestureRecognizer(longPress)
+    }
+
+    private func readyStatusText() -> String {
+        if aspect.isSplitScreenEnabled {
+            return "就绪：上下分屏，长按画面切换前后摄位置"
+        }
+        if aspect.isPiPEnabled {
+            return "就绪：拖动/双指缩放小窗，点按开始录制"
+        }
+        return "就绪：点按开始录制"
     }
 
     private func ensurePiPView() {
@@ -541,9 +645,10 @@ extension RecordingViewController: CaptureSourceDelegate {
         let duration = Self.mediaDuration(for: pending.main, fallback: elapsedDuration)
         let project = RecordingProject(
             mainVideoURL: pending.main,
-            pipVideoURL: aspect.isPiPEnabled ? pending.pip : nil,
+            pipVideoURL: aspect.recordsSecondaryVideo ? pending.pip : nil,
             duration: duration,
             pipTrack: aspect.isPiPEnabled ? pipTrack : [],
+            splitScreenTrack: aspect.isSplitScreenEnabled ? splitScreenTrack : [],
             subtitleTrack: subtitleTrack.sorted { $0.startTime < $1.startTime },
             aspect: aspect
         )

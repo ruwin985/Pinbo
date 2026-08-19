@@ -60,30 +60,55 @@ public struct PiPStyle: Codable, Equatable {
     }
 }
 
+/// 上下分屏时前后摄像头的排列顺序。
+public enum CameraSplitOrder: String, Codable, Equatable {
+    case frontTop
+    case backTop
+
+    public mutating func toggle() {
+        self = self == .frontTop ? .backTop : .frontTop
+    }
+}
+
 /// 大窗 + 小窗的比例设置集合。
 public struct AspectSettings: Codable, Equatable {
     public var main: AspectRatio
     public var isPiPEnabled: Bool
+    public var isSplitScreenEnabled: Bool
+    public var splitOrder: CameraSplitOrder
     public var pip: PiPStyle
+
+    public var recordsSecondaryVideo: Bool {
+        isPiPEnabled || isSplitScreenEnabled
+    }
 
     public init(main: AspectRatio = .default,
                 isPiPEnabled: Bool = true,
+                isSplitScreenEnabled: Bool = false,
+                splitOrder: CameraSplitOrder = .frontTop,
                 pip: PiPStyle = PiPStyle()) {
         self.main = main
-        self.isPiPEnabled = isPiPEnabled
+        self.isSplitScreenEnabled = isSplitScreenEnabled
+        self.isPiPEnabled = isSplitScreenEnabled ? false : isPiPEnabled
+        self.splitOrder = splitOrder
         self.pip = pip
     }
 
     private enum CodingKeys: String, CodingKey {
         case main
         case isPiPEnabled
+        case isSplitScreenEnabled
+        case splitOrder
         case pip
     }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         main = try container.decodeIfPresent(AspectRatio.self, forKey: .main) ?? .default
-        isPiPEnabled = try container.decodeIfPresent(Bool.self, forKey: .isPiPEnabled) ?? true
+        let decodedSplitScreen = try container.decodeIfPresent(Bool.self, forKey: .isSplitScreenEnabled) ?? false
+        isSplitScreenEnabled = decodedSplitScreen
+        isPiPEnabled = decodedSplitScreen ? false : (try container.decodeIfPresent(Bool.self, forKey: .isPiPEnabled) ?? true)
+        splitOrder = try container.decodeIfPresent(CameraSplitOrder.self, forKey: .splitOrder) ?? .frontTop
         pip = try container.decodeIfPresent(PiPStyle.self, forKey: .pip) ?? PiPStyle()
     }
 }

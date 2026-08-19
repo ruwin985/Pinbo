@@ -44,7 +44,7 @@ public final class VideoCompositor {
         guard let mainURL = project.mainVideoURL else { throw CompositorError.missingMainVideo }
 
         let mainAsset = AVURLAsset(url: mainURL)
-        let pipAsset = project.aspect.isPiPEnabled ? project.pipVideoURL.map { AVURLAsset(url: $0) } : nil
+        let pipAsset = project.aspect.recordsSecondaryVideo ? project.pipVideoURL.map { AVURLAsset(url: $0) } : nil
 
         let composition = AVMutableComposition()
 
@@ -75,7 +75,7 @@ public final class VideoCompositor {
         // 画中画轨道
         var pipSourceTrack: AVAssetTrack?
         var pipTrackID: CMPersistentTrackID?
-        let hasPip = project.aspect.isPiPEnabled && pipAsset != nil && !project.pipTrack.isEmpty
+        let hasPip = pipAsset != nil && (project.aspect.isSplitScreenEnabled || (project.aspect.isPiPEnabled && !project.pipTrack.isEmpty))
         if let pipAsset, let track = pipAsset.tracks(withMediaType: .video).first,
            let t = composition.addMutableTrack(
             withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) {
@@ -108,6 +108,11 @@ public final class VideoCompositor {
         instruction.pipKeyframes = shifted(project.pipTrack, by: startSeconds)
         instruction.pipAspect = project.aspect.pip.aspect
         instruction.pipCornerRatio = project.aspect.pip.cornerRatio
+        instruction.isSplitScreenEnabled = project.aspect.isSplitScreenEnabled
+        instruction.splitScreenOrder = project.aspect.splitOrder
+        instruction.splitScreenKeyframes = shifted(project.splitScreenTrack,
+                                                  by: startSeconds,
+                                                  fallback: project.aspect.splitOrder)
         instruction.totalDuration = duration.seconds
         instruction.subtitles = includeSubtitles ? shifted(project.subtitleTrack, by: startSeconds, duration: duration.seconds) : []
         instruction.subtitleLayout = project.subtitleLayout
@@ -174,6 +179,18 @@ public final class VideoCompositor {
                         center: $0.center,
                         size: $0.size,
                         cornerRadius: $0.cornerRadius)
+        })
+        return shifted
+    }
+
+    private func shifted(_ keyframes: [SplitScreenKeyframe],
+                         by offset: TimeInterval,
+                         fallback: CameraSplitOrder) -> [SplitScreenKeyframe] {
+        let sorted = keyframes.sorted { $0.time < $1.time }
+        let base = sorted.last(where: { $0.time <= offset }) ?? sorted.first ?? SplitScreenKeyframe(time: 0, order: fallback)
+        var shifted = [SplitScreenKeyframe(time: 0, order: base.order)]
+        shifted.append(contentsOf: sorted.filter { $0.time > offset }.map {
+            SplitScreenKeyframe(time: $0.time - offset, order: $0.order)
         })
         return shifted
     }

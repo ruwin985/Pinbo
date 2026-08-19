@@ -21,6 +21,19 @@ public struct PiPKeyframe: Codable, Equatable {
     }
 }
 
+/// 上下分屏布局关键帧：记录某个时间点前后摄像头的上下顺序。
+public struct SplitScreenKeyframe: Codable, Equatable {
+    /// 相对项目时间轴的时间点（秒）
+    public var time: TimeInterval
+    /// 上下分屏排列顺序。
+    public var order: CameraSplitOrder
+
+    public init(time: TimeInterval, order: CameraSplitOrder) {
+        self.time = time
+        self.order = order
+    }
+}
+
 /// 一段字幕：带精确起止时间戳，供编辑与重新渲染使用。
 public struct SubtitleSegment: Codable, Equatable, Identifiable {
     public var id: UUID
@@ -61,6 +74,7 @@ public struct RecordingProject: Codable, Equatable {
     public var pipVideoURL: URL?
     public var duration: TimeInterval
     public var pipTrack: [PiPKeyframe]
+    public var splitScreenTrack: [SplitScreenKeyframe]
     public var subtitleTrack: [SubtitleSegment]
     public var subtitleLayout: SubtitleLayout
     /// 是否为草稿。
@@ -75,6 +89,7 @@ public struct RecordingProject: Codable, Equatable {
         pipVideoURL: URL? = nil,
         duration: TimeInterval = 0,
         pipTrack: [PiPKeyframe] = [],
+        splitScreenTrack: [SplitScreenKeyframe] = [],
         subtitleTrack: [SubtitleSegment] = [],
         subtitleLayout: SubtitleLayout = SubtitleLayout(),
         isDraft: Bool = false,
@@ -86,6 +101,7 @@ public struct RecordingProject: Codable, Equatable {
         self.pipVideoURL = pipVideoURL
         self.duration = duration
         self.pipTrack = pipTrack
+        self.splitScreenTrack = splitScreenTrack
         self.subtitleTrack = subtitleTrack
         self.subtitleLayout = subtitleLayout
         self.isDraft = isDraft
@@ -99,6 +115,7 @@ public struct RecordingProject: Codable, Equatable {
         case pipVideoURL
         case duration
         case pipTrack
+        case splitScreenTrack
         case subtitleTrack
         case subtitleLayout
         case isDraft
@@ -113,6 +130,7 @@ public struct RecordingProject: Codable, Equatable {
         pipVideoURL = try container.decodeIfPresent(URL.self, forKey: .pipVideoURL)
         duration = try container.decode(TimeInterval.self, forKey: .duration)
         pipTrack = try container.decode([PiPKeyframe].self, forKey: .pipTrack)
+        splitScreenTrack = try container.decodeIfPresent([SplitScreenKeyframe].self, forKey: .splitScreenTrack) ?? []
         subtitleTrack = try container.decode([SubtitleSegment].self, forKey: .subtitleTrack)
         subtitleLayout = try container.decodeIfPresent(SubtitleLayout.self, forKey: .subtitleLayout) ?? SubtitleLayout()
         isDraft = try container.decode(Bool.self, forKey: .isDraft)
@@ -127,6 +145,7 @@ public struct RecordingProject: Codable, Equatable {
         try container.encodeIfPresent(pipVideoURL, forKey: .pipVideoURL)
         try container.encode(duration, forKey: .duration)
         try container.encode(pipTrack, forKey: .pipTrack)
+        try container.encode(splitScreenTrack, forKey: .splitScreenTrack)
         try container.encode(subtitleTrack, forKey: .subtitleTrack)
         try container.encode(subtitleLayout, forKey: .subtitleLayout)
         try container.encode(isDraft, forKey: .isDraft)
