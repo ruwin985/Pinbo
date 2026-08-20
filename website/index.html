@@ -1,0 +1,369 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="创作者智能中心：拍呗 Pinbo 与 CleanMac。">
+  <meta name="theme-color" content="#0b0d14">
+  <title>创作者智能中心</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #080a10;
+      --card: rgba(255, 255, 255, 0.08);
+      --card-border: rgba(255, 255, 255, 0.16);
+      --text: #fff;
+      --muted: rgba(255, 255, 255, 0.68);
+      --pinbo: #ff3d12;
+      --cleanmac: #32d074;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      min-height: 100%;
+      background: #080a10;
+      overscroll-behavior-y: none;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      color: var(--text);
+      background: #080a10;
+      isolation: isolate;
+      overscroll-behavior-y: none;
+    }
+
+    body::before {
+      position: fixed;
+      inset: 0;
+      z-index: -1;
+      pointer-events: none;
+      content: "";
+      background:
+        radial-gradient(circle at 20% 8%, rgba(255, 61, 18, 0.34), transparent 30rem),
+        radial-gradient(circle at 84% 10%, rgba(50, 208, 116, 0.24), transparent 28rem),
+        linear-gradient(180deg, #10131f 0%, var(--bg) 58%, #05060a 100%);
+    }
+
+    a {
+      color: inherit;
+      text-decoration: none;
+    }
+
+    .shell {
+      width: min(1120px, calc(100% - 40px));
+      margin: 0 auto;
+    }
+
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      backdrop-filter: blur(22px);
+      background: rgba(8, 10, 16, 0.72);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .topbar-inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      min-height: 76px;
+      gap: 20px;
+    }
+
+    .brand {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .brand strong {
+      font-size: 18px;
+      letter-spacing: 0.02em;
+    }
+
+    .brand span {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .product-nav {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .nav-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 9px;
+      min-height: 42px;
+      padding: 8px 14px 8px 10px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      color: rgba(255, 255, 255, 0.9);
+      font-size: 14px;
+      font-weight: 700;
+      transition: transform 180ms ease, border-color 180ms ease, background 180ms ease;
+    }
+
+    .nav-item:hover {
+      transform: translateY(-1px);
+      border-color: rgba(255, 255, 255, 0.28);
+      background: rgba(255, 255, 255, 0.14);
+    }
+
+    .nav-item img {
+      width: 26px;
+      height: 26px;
+      border-radius: 8px;
+      object-fit: cover;
+    }
+
+    main {
+      padding: 92px 0 80px;
+    }
+
+    .hero {
+      text-align: center;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      margin: 0 0 18px;
+      padding: 8px 14px;
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      border-radius: 999px;
+      color: rgba(255, 255, 255, 0.72);
+      background: rgba(255, 255, 255, 0.07);
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(42px, 8vw, 86px);
+      line-height: 0.98;
+      letter-spacing: -0.07em;
+    }
+
+    .lead {
+      max-width: 680px;
+      margin: 24px auto 0;
+      color: var(--muted);
+      font-size: clamp(17px, 2.4vw, 22px);
+      line-height: 1.65;
+    }
+
+    .products {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 22px;
+      margin-top: 56px;
+    }
+
+    .product-card {
+      position: relative;
+      min-height: 330px;
+      overflow: hidden;
+      border-radius: 34px;
+      padding: 30px;
+      background: var(--card);
+      border: 1px solid var(--card-border);
+      box-shadow: 0 28px 80px rgba(0, 0, 0, 0.28);
+      transition: transform 220ms ease, border-color 220ms ease, background 220ms ease;
+    }
+
+    .product-card:hover {
+      transform: translateY(-5px);
+      border-color: rgba(255, 255, 255, 0.28);
+      background: rgba(255, 255, 255, 0.11);
+    }
+
+    .product-card::before {
+      content: "";
+      position: absolute;
+      inset: -45% -30% auto auto;
+      width: 280px;
+      height: 280px;
+      border-radius: 50%;
+      filter: blur(4px);
+      opacity: 0.5;
+    }
+
+    .product-card.pinbo::before {
+      background: var(--pinbo);
+    }
+
+    .product-card.cleanmac::before {
+      background: var(--cleanmac);
+    }
+
+    .card-content {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      min-height: 270px;
+      text-align: left;
+    }
+
+    .product-icon {
+      width: 78px;
+      height: 78px;
+      border-radius: 20px;
+      object-fit: cover;
+      box-shadow: 0 16px 38px rgba(0, 0, 0, 0.32);
+    }
+
+    .product-card h2 {
+      margin: 24px 0 10px;
+      font-size: clamp(30px, 4vw, 46px);
+      line-height: 1.02;
+      letter-spacing: -0.04em;
+    }
+
+    .product-card p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 16px;
+      line-height: 1.7;
+    }
+
+    .open-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: auto;
+      width: max-content;
+      padding: 12px 16px;
+      border-radius: 999px;
+      background: #fff;
+      color: #11131a;
+      font-size: 14px;
+      font-weight: 800;
+    }
+
+    .footer {
+      padding: 28px 0 44px;
+      color: rgba(255, 255, 255, 0.42);
+      text-align: center;
+      font-size: 13px;
+    }
+
+    .footer p {
+      margin: 0;
+    }
+
+    .footer-links {
+      display: flex;
+      justify-content: center;
+      gap: 16px;
+      flex-wrap: wrap;
+      margin-top: 12px;
+    }
+
+    .footer-links a {
+      color: rgba(255, 255, 255, 0.68);
+      transition: color 180ms ease;
+    }
+
+    .footer-links a:hover {
+      color: #fff;
+    }
+
+    @media (max-width: 760px) {
+      .shell {
+        width: min(100% - 28px, 1120px);
+      }
+
+      .topbar-inner {
+        align-items: flex-start;
+        flex-direction: column;
+        padding: 16px 0;
+      }
+
+      .product-nav {
+        justify-content: flex-start;
+      }
+
+      main {
+        padding-top: 58px;
+      }
+
+      .products {
+        grid-template-columns: 1fr;
+      }
+
+      .product-card {
+        min-height: 300px;
+        padding: 24px;
+      }
+
+      .card-content {
+        min-height: 242px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="shell topbar-inner">
+      <a class="brand" href="/" aria-label="创作者智能中心">
+        <strong>创作者智能中心</strong>
+        <span>选择要访问的产品</span>
+      </a>
+      <nav class="product-nav" aria-label="产品导航">
+        <a class="nav-item" href="/pinbo/"><img src="/pinbo/assets/app-icon.png" alt="">拍呗 Pinbo</a>
+        <a class="nav-item" href="/CleanMac/"><img src="/CleanMac/images/cleanmac-icon.png" alt="">CleanMac</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <section class="shell hero" aria-labelledby="main-title">
+      <p class="eyebrow">PRODUCTS</p>
+      <h1 id="main-title">选择产品，继续开始。</h1>
+      <p class="lead">这里汇总当前项目产品「拍呗 Pinbo」和 CleanMac。点击顶部导航或下方产品卡片即可进入对应网站。</p>
+
+      <div class="products">
+        <a class="product-card pinbo" href="/pinbo/" aria-label="打开拍呗 Pinbo 产品页">
+          <div class="card-content">
+            <img class="product-icon" src="/pinbo/assets/app-icon.png" alt="拍呗 Pinbo 图标">
+            <h2>拍呗 Pinbo</h2>
+            <p>面向短视频创作者的录制工作台，支持前后双摄、屏幕录制、实时字幕与快速导出。</p>
+            <span class="open-link">打开 Pinbo <span aria-hidden="true">→</span></span>
+          </div>
+        </a>
+
+        <a class="product-card cleanmac" href="/CleanMac/" aria-label="打开 CleanMac 产品页">
+          <div class="card-content">
+            <img class="product-icon" src="/CleanMac/images/cleanmac-icon.png" alt="CleanMac 图标">
+            <h2>CleanMac</h2>
+            <p>为 macOS 打造的磁盘清理与空间巡检工具，帮助扫描占用、清理缓存和残留文件。</p>
+            <span class="open-link">打开 CleanMac <span aria-hidden="true">→</span></span>
+          </div>
+        </a>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer shell">
+    <p>© 2026 创作者智能中心</p>
+    <p class="footer-links">
+      <a href="/changelog/">更新日志</a>
+      <a href="/legal/privacy/">隐私政策</a>
+      <a href="/legal/terms/">服务条款</a>
+    </p>
+  </footer>
+</body>
+</html>
