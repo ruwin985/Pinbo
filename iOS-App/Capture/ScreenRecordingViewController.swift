@@ -39,7 +39,7 @@ final class ScreenRecordingViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = UIColor(red: 1, green: 0.37, blue: 0.31, alpha: 1)
+        view.backgroundColor = AppTheme.primary
         navigationController?.setNavigationBarHidden(true, animated: false)
         setupUI()
         configureCameraPictureInPictureIfAvailable()
@@ -137,20 +137,14 @@ final class ScreenRecordingViewController: UIViewController {
         durationLabel.alpha = 0
         view.addSubview(durationLabel)
 
-        recordButton.backgroundColor = .white
-        recordButton.layer.cornerRadius = 46
-        recordButton.layer.cornerCurve = .continuous
-        recordButton.layer.shadowColor = UIColor.black.cgColor
-        recordButton.layer.shadowOpacity = 0.18
-        recordButton.layer.shadowRadius = 18
-        recordButton.layer.shadowOffset = CGSize(width: 0, height: 8)
+        recordButton.applyAppPrimaryButtonStyle(cornerRadius: 46, shadow: true)
         recordButton.isUserInteractionEnabled = false
         view.addSubview(recordButton)
 
         systemBroadcastPicker.preferredExtension = Constants.broadcastExtensionBundleIdentifier
         systemBroadcastPicker.showsMicrophoneButton = true
         systemBroadcastPicker.backgroundColor = .clear
-        systemBroadcastPicker.tintColor = UIColor(red: 1, green: 0.25, blue: 0.35, alpha: 1)
+        systemBroadcastPicker.tintColor = .white
         systemBroadcastPicker.accessibilityLabel = "打开系统录屏"
         view.addSubview(systemBroadcastPicker)
         configureSystemBroadcastPickerAppearance()
@@ -212,11 +206,7 @@ final class ScreenRecordingViewController: UIViewController {
 
     private func setupGradientBackground() {
         let gradient = CAGradientLayer()
-        gradient.colors = [
-            UIColor(red: 1, green: 0.31, blue: 0.36, alpha: 1).cgColor,
-            UIColor(red: 1, green: 0.47, blue: 0.34, alpha: 1).cgColor,
-            UIColor(red: 1, green: 0.63, blue: 0.43, alpha: 1).cgColor
-        ]
+        gradient.colors = AppTheme.gradientColors.map { $0.cgColor }
         gradient.startPoint = CGPoint(x: 0.2, y: 0)
         gradient.endPoint = CGPoint(x: 0.8, y: 1)
         gradient.frame = UIScreen.main.bounds
@@ -406,8 +396,8 @@ final class ScreenRecordingViewController: UIViewController {
     private func updateRecordingState() {
         isSystemRecordingActive = UIScreen.main.isCaptured
         let isRecording = isSystemRecordingActive
-        recordButton.backgroundColor = isRecording ? UIColor(red: 1, green: 0.25, blue: 0.35, alpha: 1) : .white
-        systemBroadcastPicker.tintColor = isRecording ? .white : UIColor(red: 1, green: 0.25, blue: 0.35, alpha: 1)
+        recordButton.backgroundColor = isRecording ? AppTheme.primaryPressed : AppTheme.primary
+        systemBroadcastPicker.tintColor = .white
         recordButton.accessibilityLabel = isRecording ? "结束录制" : "开始屏幕录制"
         systemBroadcastPicker.accessibilityLabel = isRecording ? "打开停止直播面板" : "打开系统直播屏幕面板"
         configureSystemBroadcastPickerAppearance()
@@ -694,6 +684,7 @@ final class ScreenRecordingViewController: UIViewController {
 
     private func showAlert(_ title: String, _ message: String) {
         let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
+        alert.view.tintColor = AppTheme.primary
         alert.addAction(UIAlertAction(title: "知道了", style: .default))
         present(alert, animated: true)
     }

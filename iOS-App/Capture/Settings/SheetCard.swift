@@ -315,13 +315,12 @@ final class AppDialogViewController: UIViewController {
     private func applyStyle(_ style: AppDialogActionStyle, to button: UIButton) {
         switch style {
         case .primary:
-            button.backgroundColor = UIColor(red: 1, green: 0.25, blue: 0.35, alpha: 1)
-            button.setTitleColor(.white, for: .normal)
+            button.applyAppPrimaryButtonStyle(cornerRadius: 14)
         case .cancel:
             button.backgroundColor = UIColor.white.withAlphaComponent(0.12)
             button.setTitleColor(.white.withAlphaComponent(0.88), for: .normal)
         case .destructive:
-            button.backgroundColor = UIColor.systemRed.withAlphaComponent(0.92)
+            button.backgroundColor = AppTheme.destructive
             button.setTitleColor(.white, for: .normal)
         }
     }

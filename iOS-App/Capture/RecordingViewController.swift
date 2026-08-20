@@ -68,9 +68,7 @@ final class RecordingViewController: UIViewController {
         view.addSubview(subtitleLabel)
 
         // 录制按钮
-        recordButton.backgroundColor = .systemRed
-        recordButton.layer.cornerRadius = 36
-        recordButton.tintColor = .white
+        recordButton.applyAppPrimaryButtonStyle(cornerRadius: 36, shadow: true)
         recordButton.adjustsImageWhenHighlighted = true
         recordButton.addTarget(self, action: #selector(toggleRecording), for: .touchUpInside)
         applyRecordButtonState(isRecording: false)

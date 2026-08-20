@@ -49,10 +49,8 @@ final class PermissionSheetViewController: UIViewController {
         closeButton.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
 
         goButton.setTitle("一键开启", for: .normal)
-        goButton.setTitleColor(.white, for: .normal)
         goButton.titleLabel?.font = .systemFont(ofSize: 17, weight: .semibold)
-        goButton.backgroundColor = UIColor(red: 1, green: 0.25, blue: 0.35, alpha: 1)
-        goButton.layer.cornerRadius = 26
+        goButton.applyAppPrimaryButtonStyle(cornerRadius: 26, shadow: true)
         goButton.addTarget(self, action: #selector(oneTapEnable), for: .touchUpInside)
 
         cameraRow.onTap = { [weak self] in self?.enableCamera() }
@@ -153,7 +151,7 @@ private final class PermissionRow: UIControl {
         titleLabel.text = title
         titleLabel.textColor = .white
         titleLabel.font = .systemFont(ofSize: 16)
-        check.tintColor = UIColor(white: 0.6, alpha: 1)
+        check.tintColor = AppTheme.primary
         check.isHidden = true
 
         let stack = UIStackView(arrangedSubviews: [iconView, titleLabel])

@@ -16,6 +16,7 @@
 		13BB4BF9D0D6CB6FC51FFBC3 /* CaptureSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5373A4081352930DC0EEEB1B /* CaptureSettings.swift */; };
 		13EDDDE4D633290A1C7A1725 /* VideoCompositor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0539275027DBFE4B92283011 /* VideoCompositor.swift */; };
 		1677889ABC344CA4639ECE91 /* LiveSpeechRecognizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FDA505D2D21A4B0479AB330 /* LiveSpeechRecognizer.swift */; };
+		1C39DFFB9BF433614E2C8EDB /* AppTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87B86F3DD6A57CCDEB7BE4EE /* AppTheme.swift */; };
 		1FB6AEF1D199A115054EE0DF /* SnapKit in Frameworks */ = {isa = PBXBuildFile; productRef = 35646ED65C0CB81A2FEBEB50 /* SnapKit */; };
 		29E7955209DED393B22416DC /* PermissionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E19BD2E9E5B6F6CBFCFEA42 /* PermissionManager.swift */; };
 		2D8979275194F412B35030A9 /* PiPPreviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4463D2F78D90BF7971D78410 /* PiPPreviewView.swift */; };
@@ -116,6 +117,7 @@
 		743B714BC83ED6458D5E3970 /* HomeWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeWindowController.swift; sourceTree = "<group>"; };
 		780EE4168B0B518C7C186477 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		80C149840162F6F4D3C6C740 /* SubtitleSegmenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubtitleSegmenter.swift; sourceTree = "<group>"; };
+		87B86F3DD6A57CCDEB7BE4EE /* AppTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppTheme.swift; sourceTree = "<group>"; };
 		885B06B885F64EC41D9F0231 /* ScreenPreviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenPreviewView.swift; sourceTree = "<group>"; };
 		901F8CA19939080D1FC85173 /* MacRecordingWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacRecordingWindowController.swift; sourceTree = "<group>"; };
 		99711E3ED9A3EF5BE66AC9C8 /* SampleHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SampleHandler.swift; sourceTree = "<group>"; };
@@ -273,6 +275,7 @@
 				B0DFEA6DD834FAC98DE1D176 /* Home */,
 				A15D76A158414125292665BE /* Permissions */,
 				219F37BC8F944F302A66A68D /* ScreenBroadcastExtension */,
+				DC1D8BB51DF031D3BD65866A /* Theme */,
 			);
 			path = "iOS-App";
 			sourceTree = "<group>";
@@ -362,6 +365,14 @@
 				D56F7585E66471B8DED19FF4 /* CaptureSource.swift */,
 			);
 			path = CaptureSource;
+			sourceTree = "<group>";
+		};
+		DC1D8BB51DF031D3BD65866A /* Theme */ = {
+			isa = PBXGroup;
+			children = (
+				87B86F3DD6A57CCDEB7BE4EE /* AppTheme.swift */,
+			);
+			path = Theme;
 			sourceTree = "<group>";
 		};
 		F7B1A583F6590A50402F2302 /* Speech */ = {
@@ -517,6 +528,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				89CBE54D3E5534D094BE1510 /* AppDelegate.swift in Sources */,
+				1C39DFFB9BF433614E2C8EDB /* AppTheme.swift in Sources */,
 				378868A2BDE561DE5F7EE7F7 /* AspectSettingsViewController.swift in Sources */,
 				13BB4BF9D0D6CB6FC51FFBC3 /* CaptureSettings.swift in Sources */,
 				0490FEFA2A983BC030B9FCFE /* CaptureSource.swift in Sources */,
