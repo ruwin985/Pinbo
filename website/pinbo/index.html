@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="拍呗 Pinbo 是面向短视频创作者的录制、字幕、画中画和导出工具，支持 iPhone 前后双摄同框与 Mac 屏幕录制。">
+  <meta name="theme-color" content="#ff4b1f">
+  <meta property="og:title" content="拍呗 Pinbo - 短视频创作录制工具">
+  <meta property="og:description" content="前后双摄、屏幕录制、实时字幕、可编辑画中画，一站完成短视频创作。">
+  <meta property="og:image" content="/pinbo/assets/app-icon.png">
+  <title>拍呗 Pinbo - 短视频创作录制工具</title>
+  <link rel="icon" href="assets/app-icon.png">
+  <link rel="apple-touch-icon" href="assets/app-icon.png">
+  <link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+  <div class="page-shell">
+    <header class="site-header" aria-label="网站导航">
+      <a class="brand" href="#top" aria-label="拍呗 Pinbo 首页">
+        <img src="assets/app-icon.png" alt="拍呗 Pinbo 图标" width="44" height="44">
+        <span>
+          <strong>拍呗 Pinbo</strong>
+          <small>创作者录制工作台</small>
+        </span>
+      </a>
+      <nav class="nav-links" aria-label="主要导航">
+        <a href="#videos">视频</a>
+        <a href="#features">功能</a>
+        <a href="#workflow">流程</a>
+        <a href="#platforms">平台</a>
+        <a href="#download">下载</a>
+      </nav>
+    </header>
+
+    <main id="top">
+      <section class="hero section-grid" aria-labelledby="hero-title">
+        <div class="hero-copy">
+          <p class="eyebrow">为短视频博主打造</p>
+          <h1 id="hero-title">把拍摄、字幕、画中画和导出放进一个轻量工具。</h1>
+          <p class="lead">拍呗 Pinbo 支持 iPhone 前后双摄同框录制、Mac 屏幕 + 摄像头录制、实时字幕和非破坏式编辑，帮助创作者更快完成口播、教程、探店和产品演示视频。</p>
+          <div class="hero-actions">
+            <a class="button primary" href="#download">获取 Pinbo</a>
+            <a class="button ghost" href="#features">查看功能</a>
+          </div>
+          <dl class="hero-stats" aria-label="产品能力概览">
+            <div><dt>双端</dt><dd>iOS + macOS</dd></div>
+            <div><dt>同框</dt><dd>主画面 + 画中画</dd></div>
+            <div><dt>字幕</dt><dd>实时识别与编辑</dd></div>
+          </dl>
+        </div>
+
+        <div class="hero-visual" aria-label="Pinbo 功能示意图">
+          <div class="phone-card">
+            <div class="phone-topbar"><span></span><span></span><span></span></div>
+            <div class="recording-stage">
+              <div class="scene-overlay"></div>
+              <div class="pip-window">
+                <div class="avatar"></div>
+                <span>Front Cam</span>
+              </div>
+              <div class="subtitle-card">今天我们用 30 秒讲清楚这个产品亮点</div>
+              <div class="record-dot"><span></span>REC 00:18</div>
+            </div>
+            <div class="timeline-preview">
+              <span style="--w: 32%"></span>
+              <span style="--w: 54%"></span>
+              <span style="--w: 42%"></span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section video-showcase" id="videos" aria-labelledby="videos-title">
+        <div class="section-heading">
+          <p class="eyebrow">Promo Videos</p>
+          <h2 id="videos-title">手机端和 Mac 端首页宣传视频</h2>
+          <p>两条视频均为静音自动循环播放，可直接作为官网首页素材使用：手机端展示前后双摄、实时字幕和竖版导出，Mac 端展示屏幕录制、摄像头画中画和时间轴编辑。</p>
+        </div>
+        <div class="video-grid">
+          <article class="video-card mobile-video-card">
+            <div class="video-card-heading">
+              <h3>手机端 · 竖版</h3>
+              <span>720 × 1280 · 8s</span>
+            </div>
+            <div class="video-frame mobile-video-frame">
+              <video autoplay muted loop playsinline controls preload="metadata" poster="assets/promo-ios-poster.png" aria-label="拍呗 Pinbo 手机端宣传视频">
+                <source src="assets/promo-ios.mp4" type="video/mp4">
+              </video>
+            </div>
+          </article>
+          <article class="video-card mac-video-card">
+            <div class="video-card-heading">
+              <h3>Mac 端 · 横版</h3>
+              <span>1280 × 720 · 8s</span>
+            </div>
+            <div class="video-frame mac-video-frame">
+              <video autoplay muted loop playsinline controls preload="metadata" poster="assets/promo-mac-poster.png" aria-label="拍呗 Pinbo Mac 端宣传视频">
+                <source src="assets/promo-mac.mp4" type="video/mp4">
+              </video>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="section" id="features" aria-labelledby="features-title">
+        <div class="section-heading">
+          <p class="eyebrow">Core Features</p>
+          <h2 id="features-title">围绕“录完就能发”的核心流程设计</h2>
+          <p>录制时保持轻量，编辑时保留调整空间，导出时统一合成成适配短视频平台的竖版作品。</p>
+        </div>
+        <div class="feature-grid">
+          <article class="feature-card"><span class="icon-badge">01</span><h3>前后双摄同框</h3><p>后摄拍场景，前摄拍人物，适合探店、开箱、教程、vlog 等需要真人出镜的内容。</p></article>
+          <article class="feature-card"><span class="icon-badge">02</span><h3>屏幕 + 摄像头录制</h3><p>Mac 端支持录制桌面、窗口或应用，并把摄像头作为画中画加入，适合软件演示和课程录制。</p></article>
+          <article class="feature-card"><span class="icon-badge">03</span><h3>实时字幕</h3><p>录制过程中将语音转成字幕，保留时间戳，后续可在编辑页继续修改文字和样式。</p></article>
+          <article class="feature-card"><span class="icon-badge">04</span><h3>可拖拽画中画</h3><p>前摄小窗的位置、大小、圆角不在录制时写死，录后依旧可以调整构图。</p></article>
+          <article class="feature-card"><span class="icon-badge">05</span><h3>非破坏式编辑</h3><p>保留原始视频和时间轴元数据，字幕、画中画、音乐都能独立调整，减少重录成本。</p></article>
+          <article class="feature-card"><span class="icon-badge">06</span><h3>一键导出</h3><p>统一合成竖版视频，面向抖音、微信视频号、小红书等发布场景。</p></article>
+        </div>
+      </section>
+
+      <section class="section workflow" id="workflow" aria-labelledby="workflow-title">
+        <div class="section-heading compact">
+          <p class="eyebrow">Workflow</p>
+          <h2 id="workflow-title">从录制到发布，只保留关键步骤</h2>
+        </div>
+        <div class="steps">
+          <article><strong>1</strong><h3>选择录制源</h3><p>在 iPhone 使用前后摄，在 Mac 选择屏幕、窗口或应用作为主画面。</p></article>
+          <article><strong>2</strong><h3>边录边生成字幕</h3><p>录制过程实时生成字幕，并保存为可编辑的字幕分段。</p></article>
+          <article><strong>3</strong><h3>调整画中画与字幕</h3><p>录后重新摆放人物小窗，修正字幕文字，按作品风格微调。</p></article>
+          <article><strong>4</strong><h3>导出发布</h3><p>将主视频、前摄、字幕和音乐一次性合成，生成最终作品。</p></article>
+        </div>
+      </section>
+
+      <section class="section split-panel" id="platforms" aria-labelledby="platforms-title">
+        <div>
+          <p class="eyebrow">Platforms</p>
+          <h2 id="platforms-title">一个工程，覆盖移动拍摄与桌面录屏</h2>
+          <p>当前工程采用共享 Core + 平台独立采集层：iOS 使用 UIKit 与 AVFoundation，macOS 使用 AppKit、ScreenCaptureKit 与 AVFoundation。</p>
+        </div>
+        <div class="platform-list">
+          <article><h3>iOS</h3><p>适用于前后双摄同框录制、屏幕录制、移动端草稿管理。</p><span>建议 iPhone 12 及以上设备</span></article>
+          <article><h3>macOS</h3><p>适用于屏幕录制、窗口录制、摄像头画中画与桌面教程制作。</p><span>支持 macOS 12.3 及以上系统</span></article>
+        </div>
+      </section>
+
+      <section class="section download-card" id="download" aria-labelledby="download-title">
+        <div>
+          <p class="eyebrow">Download</p>
+          <h2 id="download-title">开始使用拍呗 Pinbo</h2>
+          <p>Mac 版已生成安装包，iOS 版可根据后续 TestFlight 或 App Store 发布节奏开放下载。</p>
+        </div>
+        <div class="download-actions">
+          <a class="button primary" href="downloads/Pinbo-1.0.0-1-universal.dmg">下载 Mac 版 DMG</a>
+          <span>版本 1.0.0 · Universal</span>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <p>© 2026 Pinbo. 让创作录制更轻、更快、更可控。</p>
+      <p>页面更新时间：2026-08-20</p>
+    </footer>
+  </div>
+</body>
+</html>
