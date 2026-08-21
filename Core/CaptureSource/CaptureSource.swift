@@ -44,7 +44,12 @@ public protocol CaptureSourceProviding: AnyObject {
 
     func startRunning()
     func stopRunning()
+    func recoverAfterInterruption()
 
     func startRecording()
     func stopRecording()
+}
+
+public extension CaptureSourceProviding {
+    func recoverAfterInterruption() {}
 }

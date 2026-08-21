@@ -29,6 +29,7 @@ final class RecordingViewController: UIViewController {
 
     // 拍摄设置
     private var aspect = AspectSettings()
+    private var videoSettings = DualCameraSource.normalizedVideoSettings(VideoCaptureSettings())
     private var mainPreviewContainer: PreviewLayerView?
     private let mainAspectMask = CAShapeLayer()
 
@@ -36,11 +37,13 @@ final class RecordingViewController: UIViewController {
         super.viewDidLoad()
         view.backgroundColor = .black
         setupUI()
+        observeAppLifecycle()
         requestPermissionsAndStart()
     }
 
     deinit {
         recordingDurationTimer?.invalidate()
+        NotificationCenter.default.removeObserver(self)
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -97,10 +100,11 @@ final class RecordingViewController: UIViewController {
         closeButton.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
         view.addSubview(closeButton)
 
-        // 右侧功能按钮列：比例 / 提示词
+        // 右侧功能按钮列：比例 / 提示词 / 参数
         let aspectBtn = makeSideButton("aspectratio", "比例", #selector(aspectTapped))
         let promptBtn = makeSideButton("text.alignleft", "提示词", #selector(promptTapped))
-        let sideStack = UIStackView(arrangedSubviews: [aspectBtn, promptBtn])
+        let parameterBtn = makeSideButton("slider.horizontal.3", "参数", #selector(parametersTapped))
+        let sideStack = UIStackView(arrangedSubviews: [aspectBtn, promptBtn, parameterBtn])
         sideStack.axis = .vertical
         sideStack.spacing = 20
         sideStack.alignment = .center
@@ -126,7 +130,7 @@ final class RecordingViewController: UIViewController {
 
         statusLabel.snp.makeConstraints { make in
             make.centerX.equalToSuperview()
-            make.centerY.equalTo(closeButton.snp.centerY)
+            make.top.equalTo(closeButton.snp.bottom)
             make.trailing.equalToSuperview().inset(16)
             make.left.equalTo(closeButton.snp.right).offset(16)
         }
@@ -198,6 +202,7 @@ final class RecordingViewController: UIViewController {
 
     private func setupSession(speechGranted: Bool) {
         source.delegate = self
+        videoSettings = DualCameraSource.normalizedVideoSettings(videoSettings)
         do {
             try source.configure()
         } catch {
@@ -262,21 +267,27 @@ final class RecordingViewController: UIViewController {
             promptPanel?.stopAutoScroll()
             stopRecordingDurationTimer()
             applyRecordButtonState(isRecording: false)
-        default:
-            recordStartTime = Date()
-            pipTrack.removeAll()
-            splitScreenTrack.removeAll()
-            subtitleTrack.removeAll()
-            subtitleSessionActive = true
-            pendingFinish = nil
-            startRecordingDurationTimer()
-            recordPiPKeyframe()
-            recordSplitScreenKeyframe()
-            source.startRecording(includePiP: aspect.recordsSecondaryVideo)
-            speech.start()
-            promptPanel?.startAutoScroll()
-            applyRecordButtonState(isRecording: true)
+        case .configured, .stopped:
+            beginRecording()
+        case .failed, .idle:
+            recoverCamera(startRecordingWhenReady: true)
         }
+    }
+
+    private func beginRecording() {
+        recordStartTime = Date()
+        pipTrack.removeAll()
+        splitScreenTrack.removeAll()
+        subtitleTrack.removeAll()
+        subtitleSessionActive = true
+        pendingFinish = nil
+        startRecordingDurationTimer()
+        recordPiPKeyframe()
+        recordSplitScreenKeyframe()
+        source.startRecording(includePiP: aspect.recordsSecondaryVideo)
+        speech.start()
+        promptPanel?.startAutoScroll()
+        applyRecordButtonState(isRecording: true)
     }
 
     private func applyRecordButtonState(isRecording: Bool) {
@@ -347,6 +358,54 @@ final class RecordingViewController: UIViewController {
         navigationController?.popToRootViewController(animated: true)
     }
 
+    private func observeAppLifecycle() {
+        NotificationCenter.default.addObserver(self,
+                                               selector: #selector(appWillResignActive),
+                                               name: UIApplication.willResignActiveNotification,
+                                               object: nil)
+        NotificationCenter.default.addObserver(self,
+                                               selector: #selector(appDidBecomeActive),
+                                               name: UIApplication.didBecomeActiveNotification,
+                                               object: nil)
+    }
+
+    @objc private func appWillResignActive() {
+        guard isRecordingPageVisible else { return }
+        guard source.state != .idle, source.state != .recording else { return }
+        recordButton.isEnabled = false
+        statusLabel.text = "相机已暂停，返回后自动恢复"
+        source.stopRunning()
+    }
+
+    @objc private func appDidBecomeActive() {
+        guard isRecordingPageVisible else { return }
+        guard source.state != .idle, source.state != .recording else { return }
+        recoverCamera(startRecordingWhenReady: false)
+    }
+
+    private var isRecordingPageVisible: Bool {
+        isViewLoaded && view.window != nil && navigationController?.topViewController === self
+    }
+
+    private func recoverCamera(startRecordingWhenReady: Bool) {
+        recordButton.isEnabled = false
+        statusLabel.text = "相机恢复中…"
+        source.recoverAfterInterruption { [weak self] isRunning in
+            guard let self else { return }
+            self.recordButton.isEnabled = isRunning
+            guard isRunning else {
+                self.statusLabel.text = "相机恢复失败，请退出后重试"
+                self.applyRecordButtonState(isRecording: false)
+                return
+            }
+            self.statusLabel.text = self.readyStatusText()
+            self.applyRecordButtonState(isRecording: false)
+            if startRecordingWhenReady {
+                self.beginRecording()
+            }
+        }
+    }
+
     @objc private func promptTapped() {
         showPromptPanel()
     }
@@ -374,6 +433,43 @@ final class RecordingViewController: UIViewController {
             self?.recordSplitScreenKeyframe()
         }
         presentSheet(sheet)
+    }
+
+    @objc private func parametersTapped() {
+        guard source.state != .recording else {
+            statusLabel.text = "录制中不可调整参数"
+            return
+        }
+        let sheet = CaptureParameterSettingsViewController(
+            settings: videoSettings,
+            availableBackResolutions: DualCameraSource.supportedVideoResolutions(for: .back),
+            backFrameRatesProvider: { resolution in
+                DualCameraSource.supportedFrameRates(for: .back, resolution: resolution)
+            },
+            availableFrontResolutions: DualCameraSource.supportedVideoResolutions(for: .front),
+            frontFrameRatesProvider: { resolution in
+                DualCameraSource.supportedFrameRates(for: .front, resolution: resolution)
+            },
+            showsFrontSettings: aspect.recordsSecondaryVideo,
+            frontSectionTitle: aspect.isSplitScreenEnabled ? "前摄像头（分屏）" : "前摄像头（小窗）"
+        )
+        sheet.onChange = { [weak self] settings in
+            self?.applyVideoSettings(settings)
+        }
+        presentSheet(sheet)
+    }
+
+    private func applyVideoSettings(_ settings: VideoCaptureSettings) {
+        let normalizedSettings = DualCameraSource.normalizedVideoSettings(settings)
+        videoSettings = normalizedSettings
+        recordButton.isEnabled = false
+        statusLabel.text = "正在切换到 \(parameterStatusText(for: normalizedSettings))…"
+        source.updateVideoSettings(normalizedSettings) { [weak self] appliedSettings, didApply in
+            guard let self else { return }
+            self.videoSettings = appliedSettings
+            self.recordButton.isEnabled = didApply && self.source.state != .idle
+            self.statusLabel.text = didApply ? self.readyStatusText() : "参数切换失败，请选择较低规格"
+        }
     }
 
     private func showPromptPanel() {
@@ -578,18 +674,24 @@ final class RecordingViewController: UIViewController {
     }
 
     private func readyStatusText() -> String {
+        let parameterText = parameterStatusText(for: videoSettings)
         if aspect.isSplitScreenEnabled {
-            return "就绪：上下分屏，长按画面切换前后摄位置"
+            return "就绪：\(parameterText)，上下分屏，长按画面切换前后摄位置"
         }
         if aspect.isPiPEnabled {
-            return "就绪：拖动/双指缩放小窗，点按开始录制"
+            return "就绪：\(parameterText)，拖动/双指缩放小窗，点按开始录制"
         }
-        return "就绪：点按开始录制"
+        return "就绪：\(parameterText)，点按开始录制"
+    }
+
+    private func parameterStatusText(for settings: VideoCaptureSettings) -> String {
+        guard aspect.recordsSecondaryVideo else { return "后 \(settings.back.displayText)" }
+        return "后 \(settings.back.displayText) / 前 \(settings.front.displayText)"
     }
 
     private func ensurePiPView() {
         guard pipView == nil, let pipLayer = source.makePiPPreviewLayer() else { return }
-        let content = PreviewLayerView(previewLayer: pipLayer, videoGravity: .resizeAspect)
+        let content = PreviewLayerView(previewLayer: pipLayer, videoGravity: .resizeAspectFill)
         let pip = PiPPreviewView(contentView: content)
         view.layoutIfNeeded()
         pip.frame = CGRect(x: closeButton.frame.minX,

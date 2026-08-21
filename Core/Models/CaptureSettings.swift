@@ -1,5 +1,6 @@
 import Foundation
 import CoreGraphics
+import CoreMedia
 
 /// 统一比例枚举，主/副视频通用。
 /// `.default` 表示"默认/铺满"：不裁剪，主画面用全屏、小窗用源比例。
@@ -110,5 +111,78 @@ public struct AspectSettings: Codable, Equatable {
         isPiPEnabled = decodedSplitScreen ? false : (try container.decodeIfPresent(Bool.self, forKey: .isPiPEnabled) ?? true)
         splitOrder = try container.decodeIfPresent(CameraSplitOrder.self, forKey: .splitOrder) ?? .frontTop
         pip = try container.decodeIfPresent(PiPStyle.self, forKey: .pip) ?? PiPStyle()
+    }
+}
+
+/// 手机摄像头录制分辨率。尺寸按横向视频规格表示，竖屏采集时由系统按连接方向输出。
+public enum CaptureVideoResolution: String, Codable, CaseIterable, Equatable {
+    case p480 = "480p"
+    case p720 = "720p"
+    case p1080 = "1080p"
+    case p4K = "4K"
+
+    public var displayName: String { rawValue }
+
+    public var dimensions: (width: Int32, height: Int32) {
+        switch self {
+        case .p480: return (640, 480)
+        case .p720: return (1280, 720)
+        case .p1080: return (1920, 1080)
+        case .p4K: return (3840, 2160)
+        }
+    }
+
+    public var pixelCount: Int {
+        let size = dimensions
+        return Int(size.width) * Int(size.height)
+    }
+
+}
+
+/// 手机摄像头录制帧率。
+public enum CaptureFrameRate: Int, Codable, CaseIterable, Equatable {
+    case fps24 = 24
+    case fps30 = 30
+    case fps60 = 60
+    case fps120 = 120
+
+    public var displayName: String { "\(rawValue)fps" }
+
+    public var frameDuration: CMTime {
+        CMTime(value: 1, timescale: CMTimeScale(rawValue))
+    }
+}
+
+/// 单个摄像头的录制参数。
+public struct CameraCaptureSettings: Codable, Equatable {
+    public var resolution: CaptureVideoResolution
+    public var frameRate: CaptureFrameRate
+
+    public var displayText: String {
+        "\(resolution.displayName) · \(frameRate.displayName)"
+    }
+
+    public init(resolution: CaptureVideoResolution = .p480,
+                frameRate: CaptureFrameRate = .fps24) {
+        self.resolution = resolution
+        self.frameRate = frameRate
+    }
+}
+
+/// 手机摄像头录制参数，前后摄像头可分别配置。
+public struct VideoCaptureSettings: Codable, Equatable {
+    public var back: CameraCaptureSettings
+    public var front: CameraCaptureSettings
+
+    public init(back: CameraCaptureSettings = CameraCaptureSettings(),
+                front: CameraCaptureSettings = CameraCaptureSettings()) {
+        self.back = back
+        self.front = front
+    }
+
+    public init(resolution: CaptureVideoResolution,
+                frameRate: CaptureFrameRate) {
+        let settings = CameraCaptureSettings(resolution: resolution, frameRate: frameRate)
+        self.init(back: settings, front: settings)
     }
 }

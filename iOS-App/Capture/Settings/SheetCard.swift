@@ -4,12 +4,15 @@ import SnapKit
 /// 底部弹窗卡片：标题 + 关闭 + 垂直内容堆栈。半透明遮罩点击关闭。
 final class SheetCard: UIView {
 
+    /// 外部控制器提供的浮层关闭回调。
     var onClose: (() -> Void)?
     private let contentStack = UIStackView()
     private let card = UIView()
     private let blurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemUltraThinMaterialDark))
     private let overlayView = UIView()
     private let dragHandleView = UIView()
+    /// 顶部拖拽和浮层收起动画的协调器。
+    private lazy var dragCoordinator = SheetCardDragCoordinator(sheetView: self, cardView: card)
 
     init(title: String) {
         super.init(frame: .zero)
@@ -41,6 +44,7 @@ final class SheetCard: UIView {
         dragHandleView.backgroundColor = UIColor.white.withAlphaComponent(0.34)
         dragHandleView.layer.cornerRadius = 2
         dragHandleView.layer.cornerCurve = .continuous
+        dragHandleView.isUserInteractionEnabled = false
         card.addSubview(dragHandleView)
 
         let titleLabel = UILabel()
@@ -102,6 +106,7 @@ final class SheetCard: UIView {
 
         let tap = UITapGestureRecognizer(target: self, action: #selector(bgTapped(_:)))
         addGestureRecognizer(tap)
+        dragCoordinator.onDismiss = { [weak self] in self?.onClose?() }
     }
     required init?(coder: NSCoder) { fatalError() }
 
@@ -114,10 +119,10 @@ final class SheetCard: UIView {
 
     func addContent(_ v: UIView) { contentStack.addArrangedSubview(v) }
 
-    @objc private func closeTapped() { onClose?() }
+    @objc private func closeTapped() { dragCoordinator.closeAnimated() }
     @objc private func bgTapped(_ g: UITapGestureRecognizer) {
         // 仅点击卡片外区域关闭
-        if !card.frame.contains(g.location(in: self)) { onClose?() }
+        if !card.frame.contains(g.location(in: self)) { dragCoordinator.closeAnimated() }
     }
 
     // MARK: - Builders

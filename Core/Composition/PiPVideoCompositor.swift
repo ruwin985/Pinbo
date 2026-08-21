@@ -87,20 +87,31 @@ final class PiPCompositionInstruction: NSObject, AVVideoCompositionInstructionPr
 final class PiPVideoCompositor: NSObject, AVVideoCompositing {
 
     private let ciContext: CIContext = {
+        let options: [CIContextOption: Any] = [.cacheIntermediates: false]
         if let dev = MTLCreateSystemDefaultDevice() {
-            return CIContext(mtlDevice: dev)
+            return CIContext(mtlDevice: dev, options: options)
         }
-        return CIContext()
+        return CIContext(options: options)
     }()
     private let renderQueue = DispatchQueue(label: "com.pinbo.compositor.render")
     private var subtitleCache: [SubtitleRenderKey: CIImage] = [:]
     private var renderedFrameCount = 0
 
     var sourcePixelBufferAttributes: [String: Any]? {
-        [kCVPixelBufferPixelFormatTypeKey as String: [kCVPixelFormatType_32BGRA]]
+        [
+            kCVPixelBufferPixelFormatTypeKey as String: [
+                NSNumber(value: kCVPixelFormatType_420YpCbCr8BiPlanarFullRange),
+                NSNumber(value: kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange),
+                NSNumber(value: kCVPixelFormatType_32BGRA),
+            ],
+            kCVPixelBufferIOSurfacePropertiesKey as String: [:],
+        ]
     }
     var requiredPixelBufferAttributesForRenderContext: [String: Any] {
-        [kCVPixelBufferPixelFormatTypeKey as String: [kCVPixelFormatType_32BGRA]]
+        [
+            kCVPixelBufferPixelFormatTypeKey as String: NSNumber(value: kCVPixelFormatType_32BGRA),
+            kCVPixelBufferIOSurfacePropertiesKey as String: [:],
+        ]
     }
 
     func renderContextChanged(_ newRenderContext: AVVideoCompositionRenderContext) {
@@ -180,7 +191,7 @@ final class PiPVideoCompositor: NSObject, AVVideoCompositing {
 
             self.ciContext.render(output, to: dst)
             renderedFrameCount += 1
-            if renderedFrameCount.isMultiple(of: 24) {
+            if renderedFrameCount.isMultiple(of: 8) {
                 self.ciContext.clearCaches()
             }
             request.finish(withComposedVideoFrame: dst)

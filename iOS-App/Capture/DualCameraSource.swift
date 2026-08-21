@@ -12,6 +12,47 @@ final class DualCameraSource: NSObject, CaptureSourceProviding {
     }
 
     static var isSupported: Bool { AVCaptureMultiCamSession.isMultiCamSupported }
+    /// 小窗默认固定为接近 3:4 的竖向外框，前摄优先选择 4:3 采集格式以减少切分辨率时的视野跳变。
+    private static let frontPreviewPreferredFormatAspect = 4.0 / 3.0
+
+    static func supportedVideoResolutions(for position: AVCaptureDevice.Position) -> [CaptureVideoResolution] {
+        guard let device = wideCameraDevice(position: position) else { return [.p480] }
+        let supported = CaptureVideoResolution.allCases.filter { resolution in
+            CaptureFrameRate.allCases.contains { frameRate in
+                preferredMultiCamFormat(for: device,
+                                        settings: CameraCaptureSettings(resolution: resolution,
+                                                                        frameRate: frameRate),
+                                        preferredAspectRatio: preferredFormatAspect(for: position)) != nil
+            }
+        }
+        return supported.isEmpty ? [.p480] : supported
+    }
+
+    static func supportedFrameRates(for position: AVCaptureDevice.Position,
+                                    resolution: CaptureVideoResolution) -> [CaptureFrameRate] {
+        guard let device = wideCameraDevice(position: position) else { return [.fps24, .fps30] }
+        let supported = CaptureFrameRate.allCases.filter { frameRate in
+            preferredMultiCamFormat(for: device,
+                                    settings: CameraCaptureSettings(resolution: resolution,
+                                                                    frameRate: frameRate),
+                                    preferredAspectRatio: preferredFormatAspect(for: position)) != nil
+        }
+        return supported.isEmpty ? [.fps24, .fps30] : supported
+    }
+
+    static func normalizedVideoSettings(_ settings: VideoCaptureSettings) -> VideoCaptureSettings {
+        VideoCaptureSettings(back: normalizedCameraSettings(settings.back, position: .back),
+                             front: normalizedCameraSettings(settings.front, position: .front))
+    }
+
+    private static func normalizedCameraSettings(_ settings: CameraCaptureSettings,
+                                                 position: AVCaptureDevice.Position) -> CameraCaptureSettings {
+        let resolutions = supportedVideoResolutions(for: position)
+        let resolution = resolutions.contains(settings.resolution) ? settings.resolution : (resolutions.first ?? .p480)
+        let frameRates = supportedFrameRates(for: position, resolution: resolution)
+        let frameRate = frameRates.contains(settings.frameRate) ? settings.frameRate : (frameRates.first ?? .fps24)
+        return CameraCaptureSettings(resolution: resolution, frameRate: frameRate)
+    }
 
     private let session = AVCaptureMultiCamSession()
     private let sessionQueue = DispatchQueue(label: "com.pinbo.capture.session")
@@ -27,6 +68,16 @@ final class DualCameraSource: NSObject, CaptureSourceProviding {
     private var recorder: MultiCamMovieRecorder?
     private var isRecordingPiP = true
     private var hasRegisteredSessionObservers = false
+    private var captureSettings = VideoCaptureSettings()
+    private var backCameraDevice: AVCaptureDevice?
+    private var frontCameraDevice: AVCaptureDevice?
+    private var backVideoInput: AVCaptureDeviceInput?
+    private var frontVideoInput: AVCaptureDeviceInput?
+
+    private struct CameraFormatChoice {
+        let format: AVCaptureDevice.Format
+        let frameRate: CaptureFrameRate
+    }
 
     deinit {
         NotificationCenter.default.removeObserver(self)
@@ -50,10 +101,58 @@ final class DualCameraSource: NSObject, CaptureSourceProviding {
         if let configureError { throw configureError }
     }
 
+    func updateVideoSettings(_ settings: VideoCaptureSettings,
+                             completion: ((VideoCaptureSettings, Bool) -> Void)? = nil) {
+        let normalizedSettings = Self.normalizedVideoSettings(settings)
+        sessionQueue.async {
+            guard self.state != .recording else {
+                DispatchQueue.main.async { completion?(self.captureSettings, false) }
+                return
+            }
+
+            let previousSettings = self.captureSettings
+            let backSettingsChanged = previousSettings.back != normalizedSettings.back
+            let frontSettingsChanged = previousSettings.front != normalizedSettings.front
+            guard backSettingsChanged || frontSettingsChanged else {
+                DispatchQueue.main.async { completion?(normalizedSettings, true) }
+                return
+            }
+            self.captureSettings = normalizedSettings
+            let wasRunning = self.session.isRunning
+            let shouldStartAfterApply: Bool
+            if case .failed = self.state {
+                shouldStartAfterApply = !wasRunning
+            } else {
+                shouldStartAfterApply = false
+            }
+
+            do {
+                try self.applyCameraFormatsOnQueue(backChanged: backSettingsChanged,
+                                                   frontChanged: frontSettingsChanged)
+                if shouldStartAfterApply { self.session.startRunning() }
+                if shouldStartAfterApply, !self.session.isRunning {
+                    self.state = .failed("相机启动失败，请退出后重试")
+                    DispatchQueue.main.async { completion?(normalizedSettings, false) }
+                    return
+                }
+                if self.state != .idle {
+                    self.state = .configured
+                }
+                DispatchQueue.main.async { completion?(normalizedSettings, true) }
+            } catch {
+                self.captureSettings = previousSettings
+                try? self.applyCameraFormatsOnQueue(backChanged: backSettingsChanged,
+                                                    frontChanged: frontSettingsChanged)
+                self.state = .failed(Self.message(for: error))
+                DispatchQueue.main.async { completion?(previousSettings, false) }
+            }
+        }
+    }
+
     private func configureSessionOnQueue() throws {
         if state == .configured || state == .recording { return }
         registerSessionObserversIfNeeded()
-
+        captureSettings = Self.normalizedVideoSettings(captureSettings)
         configurePreviewLayers()
         session.beginConfiguration()
         do {
@@ -73,6 +172,50 @@ final class DualCameraSource: NSObject, CaptureSourceProviding {
         state = .configured
     }
 
+    /// 按需更新前后摄像头格式，避免未变化的一路预览闪动。
+    private func applyCameraFormatsOnQueue(backChanged: Bool = true,
+                                           frontChanged: Bool = true) throws {
+        guard backChanged || frontChanged else { return }
+        let backChoice = try cameraFormatChoice(for: backCameraDevice,
+                                                settings: captureSettings.back,
+                                                preferredAspectRatio: nil,
+                                                isRequired: backChanged)
+        let frontChoice = try cameraFormatChoice(for: frontCameraDevice,
+                                                 settings: captureSettings.front,
+                                                 preferredAspectRatio: Self.frontPreviewPreferredFormatAspect,
+                                                 isRequired: frontChanged)
+
+        session.beginConfiguration()
+        defer { session.commitConfiguration() }
+        if let backChoice, let backCameraDevice {
+            try apply(backChoice, to: backCameraDevice)
+            backVideoInput?.videoMinFrameDurationOverride = backChoice.frameRate.frameDuration
+        }
+        if let frontChoice, let frontCameraDevice {
+            try apply(frontChoice, to: frontCameraDevice)
+            frontVideoInput?.videoMinFrameDurationOverride = frontChoice.frameRate.frameDuration
+        }
+
+        if #available(iOS 16.0, *), session.hardwareCost > 1 {
+            throw err("所选录制参数超出双摄硬件负载，请降低分辨率或帧率")
+        }
+    }
+
+    /// 获取指定摄像头在当前录制参数下可用的双摄格式。
+    private func cameraFormatChoice(for device: AVCaptureDevice?,
+                                    settings: CameraCaptureSettings,
+                                    preferredAspectRatio: Double?,
+                                    isRequired: Bool) throws -> CameraFormatChoice? {
+        guard isRequired else { return nil }
+        guard let device,
+              let choice = Self.preferredMultiCamFormat(for: device,
+                                                        settings: settings,
+                                                        preferredAspectRatio: preferredAspectRatio) else {
+            throw err("当前设备不支持所选录制参数")
+        }
+        return choice
+    }
+
     private func configurePreviewLayers() {
         backPreviewLayer.videoGravity = .resizeAspectFill
         frontPreviewLayer.videoGravity = .resizeAspectFill
@@ -87,11 +230,18 @@ final class DualCameraSource: NSObject, CaptureSourceProviding {
         guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: position) else {
             throw err("无法获取摄像头")
         }
-        let frameDuration = try configureDeviceForMultiCam(device)
+        let choice = try configureDeviceForMultiCam(device, position: position)
         let input = try AVCaptureDeviceInput(device: device)
-        input.videoMinFrameDurationOverride = frameDuration
+        input.videoMinFrameDurationOverride = choice.frameRate.frameDuration
         guard session.canAddInput(input) else { throw err("无法添加摄像头输入") }
         session.addInputWithNoConnections(input)
+        if position == .back {
+            backCameraDevice = device
+            backVideoInput = input
+        } else if position == .front {
+            frontCameraDevice = device
+            frontVideoInput = input
+        }
 
         output.alwaysDiscardsLateVideoFrames = false
         output.videoSettings = [
@@ -115,35 +265,86 @@ final class DualCameraSource: NSObject, CaptureSourceProviding {
         }
     }
 
-    private func configureDeviceForMultiCam(_ device: AVCaptureDevice) throws -> CMTime {
-        guard let format = Self.preferredMultiCamFormat(for: device) else {
+    private func configureDeviceForMultiCam(_ device: AVCaptureDevice,
+                                            position: AVCaptureDevice.Position) throws -> CameraFormatChoice {
+        let settings = position == .back ? captureSettings.back : captureSettings.front
+        let choice = Self.preferredMultiCamFormat(for: device,
+                                                  settings: settings,
+                                                  preferredAspectRatio: Self.preferredFormatAspect(for: position))
+        guard let choice else {
             throw err("当前摄像头不支持双摄格式")
         }
-        let frameDuration = Self.supportsFrameRate(24, format: format)
-            ? CMTime(value: 1, timescale: 24)
-            : CMTime(value: 1, timescale: 30)
-        try device.lockForConfiguration()
-        device.activeFormat = format
-        device.videoZoomFactor = max(1, device.minAvailableVideoZoomFactor)
-        device.activeVideoMinFrameDuration = frameDuration
-        device.activeVideoMaxFrameDuration = frameDuration
-        device.unlockForConfiguration()
-        return frameDuration
+        try apply(choice, to: device)
+        return choice
     }
 
-    private static func preferredMultiCamFormat(for device: AVCaptureDevice) -> AVCaptureDevice.Format? {
-        let targetPixelCount = 640 * 480
+    private func apply(_ choice: CameraFormatChoice, to device: AVCaptureDevice) throws {
+        try device.lockForConfiguration()
+        device.activeFormat = choice.format
+        device.videoZoomFactor = max(1, device.minAvailableVideoZoomFactor)
+        device.activeVideoMinFrameDuration = choice.frameRate.frameDuration
+        device.activeVideoMaxFrameDuration = choice.frameRate.frameDuration
+        device.unlockForConfiguration()
+    }
+
+    private static func preferredMultiCamFormat(for device: AVCaptureDevice,
+                                                settings: CameraCaptureSettings,
+                                                preferredAspectRatio: Double? = nil) -> CameraFormatChoice? {
         let candidates = device.formats.filter { format in
-            format.isMultiCamSupported && (supportsFrameRate(24, format: format) || supportsFrameRate(30, format: format))
+            format.isMultiCamSupported
+                && supports(settings.frameRate, format: format)
+                && supports(settings.resolution, format: format)
         }
-        return candidates.sorted { lhs, rhs in
-            let lhsPixels = pixelCount(for: lhs)
-            let rhsPixels = pixelCount(for: rhs)
-            let lhsFits = lhsPixels <= targetPixelCount
-            let rhsFits = rhsPixels <= targetPixelCount
-            if lhsFits != rhsFits { return lhsFits }
-            return lhsFits ? lhsPixels > rhsPixels : lhsPixels < rhsPixels
-        }.first
+        return sortedFormats(candidates,
+                             target: settings.resolution,
+                             preferredAspectRatio: preferredAspectRatio).first.map {
+            CameraFormatChoice(format: $0, frameRate: settings.frameRate)
+        }
+    }
+
+    private static func supports(_ frameRate: CaptureFrameRate, format: AVCaptureDevice.Format) -> Bool {
+        supportsFrameRate(Double(frameRate.rawValue), format: format)
+    }
+
+    private static func supports(_ resolution: CaptureVideoResolution, format: AVCaptureDevice.Format) -> Bool {
+        let dimensions = normalizedDimensions(for: format)
+        let target = normalizedDimensions(for: resolution)
+        return dimensions.long >= target.long && dimensions.short >= target.short
+    }
+
+    private static func sortedFormats(_ formats: [AVCaptureDevice.Format],
+                                      target resolution: CaptureVideoResolution,
+                                      preferredAspectRatio: Double? = nil) -> [AVCaptureDevice.Format] {
+        let targetDimensions = normalizedDimensions(for: resolution)
+        let targetAspect = preferredAspectRatio ?? Double(targetDimensions.long) / Double(targetDimensions.short)
+        return formats.sorted { lhs, rhs in
+            let lhsDimensions = normalizedDimensions(for: lhs)
+            let rhsDimensions = normalizedDimensions(for: rhs)
+            let lhsAspect = Double(lhsDimensions.long) / Double(lhsDimensions.short)
+            let rhsAspect = Double(rhsDimensions.long) / Double(rhsDimensions.short)
+            let lhsAspectDelta = abs(lhsAspect - targetAspect)
+            let rhsAspectDelta = abs(rhsAspect - targetAspect)
+            if lhsAspectDelta != rhsAspectDelta { return lhsAspectDelta < rhsAspectDelta }
+            return pixelCount(for: lhs) < pixelCount(for: rhs)
+        }
+    }
+
+    private static func preferredFormatAspect(for position: AVCaptureDevice.Position) -> Double? {
+        position == .front ? frontPreviewPreferredFormatAspect : nil
+    }
+
+    private static func normalizedDimensions(for resolution: CaptureVideoResolution) -> (long: Int32, short: Int32) {
+        let dimensions = resolution.dimensions
+        return (max(dimensions.width, dimensions.height), min(dimensions.width, dimensions.height))
+    }
+
+    private static func normalizedDimensions(for format: AVCaptureDevice.Format) -> (long: Int32, short: Int32) {
+        let dimensions = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
+        return (max(dimensions.width, dimensions.height), min(dimensions.width, dimensions.height))
+    }
+
+    private static func wideCameraDevice(position: AVCaptureDevice.Position) -> AVCaptureDevice? {
+        AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: position)
     }
 
     private static func supportsFrameRate(_ frameRate: Double, format: AVCaptureDevice.Format) -> Bool {
@@ -197,7 +398,37 @@ final class DualCameraSource: NSObject, CaptureSourceProviding {
     }
 
     func stopRunning() {
-        sessionQueue.async { if self.session.isRunning { self.session.stopRunning() } }
+        sessionQueue.async {
+            if self.session.isRunning { self.session.stopRunning() }
+        }
+    }
+
+    func recoverAfterInterruption() {
+        recoverAfterInterruption(completion: nil)
+    }
+
+    func recoverAfterInterruption(completion: ((Bool) -> Void)?) {
+        sessionQueue.async {
+            guard self.state != .idle, self.state != .recording else {
+                DispatchQueue.main.async { completion?(false) }
+                return
+            }
+            if self.session.isRunning {
+                self.session.stopRunning()
+            }
+            DispatchQueue.main.async {
+                self.backPreviewLayer.flushAndRemoveImage()
+                self.frontPreviewLayer.flushAndRemoveImage()
+            }
+            self.session.startRunning()
+            let isRunning = self.session.isRunning
+            if isRunning {
+                self.state = .configured
+            } else {
+                self.state = .failed("相机恢复失败，请退出后重试")
+            }
+            DispatchQueue.main.async { completion?(isRunning) }
+        }
     }
 
     // MARK: - Recording
@@ -209,12 +440,16 @@ final class DualCameraSource: NSObject, CaptureSourceProviding {
     func startRecording(includePiP: Bool = true) {
         outputQueue.async {
             guard self.state != .recording else { return }
+            guard self.state == .configured || self.state == .stopped else { return }
             let dir = FileManager.default.temporaryDirectory
             let stamp = "\(Int(Date().timeIntervalSince1970))_\(UUID().uuidString.prefix(8))"
             let mainURL = dir.appendingPathComponent("pinbo_back_\(stamp).mov")
             let pipURL = includePiP ? dir.appendingPathComponent("pinbo_front_\(stamp).mov") : nil
             do {
-                self.recorder = try MultiCamMovieRecorder(mainURL: mainURL, pipURL: pipURL)
+                self.recorder = try MultiCamMovieRecorder(mainURL: mainURL,
+                                                          pipURL: pipURL,
+                                                          mainFrameRate: self.captureSettings.back.frameRate,
+                                                          pipFrameRate: self.captureSettings.front.frameRate)
                 self.isRecordingPiP = includePiP
                 self.state = .recording
             } catch {
@@ -261,6 +496,7 @@ final class DualCameraSource: NSObject, CaptureSourceProviding {
         do {
             try recorder.appendMainVideo(sampleBuffer)
         } catch {
+            recorder.cancel()
             self.recorder = nil
             state = .failed(Self.message(for: error))
         }
@@ -281,6 +517,7 @@ final class DualCameraSource: NSObject, CaptureSourceProviding {
             do {
                 try recorder.appendAudio(sampleBuffer)
             } catch {
+                recorder.cancel()
                 self.recorder = nil
                 state = .failed(Self.message(for: error))
             }
@@ -295,13 +532,21 @@ final class DualCameraSource: NSObject, CaptureSourceProviding {
     private static func message(for error: Error) -> String {
         let nsError = error as NSError
         if nsError.domain == NSOSStatusErrorDomain || nsError.domain == AVFoundationErrorDomain {
-            return "相机录制失败（\(nsError.domain) \(nsError.code)），请重试"
+            return "相机录制失败（\(Self.describe(nsError))），请重试"
         }
         let message = nsError.localizedDescription
         if message == "The operation could not be completed" || message == "The operation couldn’t be completed" {
-            return "相机录制失败（\(nsError.domain) \(nsError.code)），请重试"
+            return "相机录制失败（\(Self.describe(nsError))），请重试"
         }
         return message
+    }
+
+    private static func describe(_ error: NSError) -> String {
+        var parts = ["\(error.domain) \(error.code)"]
+        if let underlying = error.userInfo[NSUnderlyingErrorKey] as? NSError {
+            parts.append("underlying \(underlying.domain) \(underlying.code)")
+        }
+        return parts.joined(separator: ", ")
     }
 
     private func registerSessionObserversIfNeeded() {
@@ -324,6 +569,7 @@ final class DualCameraSource: NSObject, CaptureSourceProviding {
     @objc private func sessionRuntimeError(_ notification: Notification) {
         let error = notification.userInfo?[AVCaptureSessionErrorKey] as? NSError
         outputQueue.async {
+            self.recorder?.cancel()
             self.recorder = nil
             self.state = .failed(error.map { Self.message(for: $0) } ?? "相机运行异常，请退出后重试")
         }
@@ -331,6 +577,7 @@ final class DualCameraSource: NSObject, CaptureSourceProviding {
 
     @objc private func sessionWasInterrupted(_ notification: Notification) {
         outputQueue.async {
+            self.recorder?.cancel()
             self.recorder = nil
             self.state = .failed("相机被系统中断，请关闭其他占用相机的功能后重试")
         }
@@ -395,11 +642,14 @@ private final class MultiCamMovieRecorder {
     private var pipWriter: CameraTrackWriter?
     private var isFinishing = false
 
-    init(mainURL: URL, pipURL: URL?) throws {
+    init(mainURL: URL,
+         pipURL: URL?,
+         mainFrameRate: CaptureFrameRate,
+         pipFrameRate: CaptureFrameRate) throws {
         self.mainURL = mainURL
         self.pipURL = pipURL
-        mainWriter = try CameraTrackWriter(outputURL: mainURL, recordsAudio: true)
-        pipWriter = try pipURL.map { try CameraTrackWriter(outputURL: $0, recordsAudio: false) }
+        mainWriter = try CameraTrackWriter(outputURL: mainURL, recordsAudio: true, frameRate: mainFrameRate)
+        pipWriter = try pipURL.map { try CameraTrackWriter(outputURL: $0, recordsAudio: false, frameRate: pipFrameRate) }
     }
 
     func appendMainVideo(_ sampleBuffer: CMSampleBuffer) throws {
@@ -418,6 +668,14 @@ private final class MultiCamMovieRecorder {
     }
 
     func disablePiP() {
+        pipWriter?.cancel()
+        pipWriter = nil
+    }
+
+    func cancel() {
+        guard !isFinishing else { return }
+        isFinishing = true
+        mainWriter.cancel()
         pipWriter?.cancel()
         pipWriter = nil
     }
@@ -469,6 +727,7 @@ private final class MultiCamMovieRecorder {
 private final class CameraTrackWriter {
     private let outputURL: URL
     private let writer: AVAssetWriter
+    private let frameRate: CaptureFrameRate
     private var videoInput: AVAssetWriterInput?
     private var audioInput: AVAssetWriterInput?
     private var startTime = CMTime.invalid
@@ -476,8 +735,9 @@ private final class CameraTrackWriter {
     private var hasVideoFrames = false
     private var isFinishing = false
 
-    init(outputURL: URL, recordsAudio: Bool) throws {
+    init(outputURL: URL, recordsAudio: Bool, frameRate: CaptureFrameRate) throws {
         self.outputURL = outputURL
+        self.frameRate = frameRate
         try? FileManager.default.removeItem(at: outputURL)
         writer = try AVAssetWriter(outputURL: outputURL, fileType: .mov)
         writer.shouldOptimizeForNetworkUse = true
@@ -550,7 +810,10 @@ private final class CameraTrackWriter {
         let dimensions = CMVideoFormatDescriptionGetDimensions(formatDescription)
         let width = max(1, Int(dimensions.width))
         let height = max(1, Int(dimensions.height))
-        let input = AVAssetWriterInput(mediaType: .video, outputSettings: Self.videoSettings(width: width, height: height))
+        let input = AVAssetWriterInput(mediaType: .video,
+                                       outputSettings: Self.videoSettings(width: width,
+                                                                          height: height,
+                                                                          frameRate: frameRate))
         input.expectsMediaDataInRealTime = true
         guard writer.canAdd(input) else { throw MultiCamMovieRecorder.RecorderError.cannotAddVideoInput }
         writer.add(input)
@@ -583,15 +846,17 @@ private final class CameraTrackWriter {
         }
     }
 
-    private static func videoSettings(width: Int, height: Int) -> [String: Any] {
+    private static func videoSettings(width: Int, height: Int, frameRate: CaptureFrameRate) -> [String: Any] {
         let pixelCount = width * height
-        let averageBitRate = min(max(pixelCount * 4, 1_200_000), 6_000_000)
+        let frameRateScale = max(1, frameRate.rawValue / 30)
+        let averageBitRate = min(max(pixelCount * 4 * frameRateScale, 1_200_000), 48_000_000)
         return [
             AVVideoCodecKey: AVVideoCodecType.h264,
             AVVideoWidthKey: width,
             AVVideoHeightKey: height,
             AVVideoCompressionPropertiesKey: [
                 AVVideoAverageBitRateKey: averageBitRate,
+                AVVideoExpectedSourceFrameRateKey: frameRate.rawValue,
                 AVVideoProfileLevelKey: AVVideoProfileLevelH264HighAutoLevel
             ]
         ]

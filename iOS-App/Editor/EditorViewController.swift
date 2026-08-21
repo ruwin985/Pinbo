@@ -48,6 +48,8 @@ final class EditorViewController: UIViewController {
     private var subtitlePanStartCenter: CGPoint = .zero
     private var subtitlePinchStartScale: CGFloat = 1
     private var subtitlePinchStartWidth: CGFloat = 0.86
+    /// 标记保存导出进行中，用于暂停预览和缩略图缓存回填以降低内存峰值。
+    private var isExportingForSave = false
 
     init(project: RecordingProject) {
         var normalizedProject = project
@@ -321,6 +323,22 @@ final class EditorViewController: UIViewController {
         seek(to: trimStart)
     }
 
+    /// 卸载编辑预览播放器，释放解码缓存，给导出保存留出内存空间。
+    private func unloadPlayerForExport() {
+        if let timeObserver { player?.removeTimeObserver(timeObserver) }
+        timeObserver = nil
+        itemStatusObservation?.invalidate()
+        itemStatusObservation = nil
+        player?.pause()
+        playerLayer?.player = nil
+        playerLayer?.removeFromSuperlayer()
+        playerLayer = nil
+        player = nil
+        shouldPlayWhenReady = false
+        playButton.setImage(UIImage(systemName: "play.fill"), for: .normal)
+        updateSubtitleOverlay(at: trimStart)
+    }
+
     /// 根据当前时间显示对应字幕分段（实时叠加，与轨道一致）。
     private func updateSubtitleOverlay(at t: TimeInterval) {
         guard areSubtitlesVisible else {
@@ -416,7 +434,8 @@ final class EditorViewController: UIViewController {
 
     private func generateThumbnails() {
         guard let mainURL = project.mainVideoURL else { return }
-        DispatchQueue.global(qos: .userInitiated).async {
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self else { return }
             let asset = AVURLAsset(url: mainURL)
             let gen = AVAssetImageGenerator(asset: asset)
             gen.appliesPreferredTrackTransform = true
@@ -431,8 +450,16 @@ final class EditorViewController: UIViewController {
                     images.append(UIImage(cgImage: cg))
                 }
             }
-            DispatchQueue.main.async { self.timeline.videoThumbnails = images }
+            DispatchQueue.main.async { [weak self] in
+                guard let self, !self.isExportingForSave else { return }
+                self.timeline.videoThumbnails = images
+            }
         }
+    }
+
+    /// 清理时间轴缩略图，避免保存导出时与视频合成同时占用内存。
+    private func unloadTimelineThumbnailsForExport() {
+        timeline.videoThumbnails = []
     }
 
     // MARK: - Playback
@@ -751,6 +778,9 @@ final class EditorViewController: UIViewController {
 
     private func exportAndSave() {
         pausePlayback()
+        isExportingForSave = true
+        unloadPlayerForExport()
+        unloadTimelineThumbnailsForExport()
         activity.startAnimating()
         saveButton.isEnabled = false
 
@@ -768,15 +798,23 @@ final class EditorViewController: UIViewController {
                     case .success:
                         self.showAlert("已保存", "视频已保存到相册 ✅") { self.goBack() }
                     case .failure(let err):
-                        self.showAlert("保存失败", err.localizedDescription)
+                        self.restoreEditorAfterFailedExport(title: "保存失败", message: err.localizedDescription)
                     }
                 }
             case .failure(let err):
-                self.activity.stopAnimating()
-                self.saveButton.isEnabled = true
-                self.showAlert("导出失败", err.localizedDescription)
+                self.restoreEditorAfterFailedExport(title: "导出失败", message: err.localizedDescription)
             }
         }
+    }
+
+    /// 保存导出失败后恢复编辑预览、时间轴缩略图和按钮状态。
+    private func restoreEditorAfterFailedExport(title: String, message: String) {
+        isExportingForSave = false
+        activity.stopAnimating()
+        saveButton.isEnabled = true
+        setupPlayer()
+        generateThumbnails()
+        showAlert(title, message)
     }
 
     @objc private func cancelTapped() {
