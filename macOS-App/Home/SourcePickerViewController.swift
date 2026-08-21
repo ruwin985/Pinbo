@@ -48,6 +48,17 @@ final class SourcePickerViewController: NSViewController {
         loadTargets()
     }
 
+    /// 页面即将消失时清理外部窗口高亮框。
+    override func viewWillDisappear() {
+        super.viewWillDisappear()
+        clearSelectionHighlight()
+    }
+
+    /// 页面释放时兜底清理外部窗口高亮框。
+    deinit {
+        clearSelectionHighlight()
+    }
+
     /// 搭建选择页整体 UI。
     private func setupUI() {
         titleLabel.font = .systemFont(ofSize: 30, weight: .semibold)
@@ -230,13 +241,20 @@ final class SourcePickerViewController: NSViewController {
 
     /// 响应返回按钮点击。
     @objc private func backTapped() {
+        clearSelectionHighlight()
         onBack?()
     }
 
     /// 响应确认按钮点击。
     @objc private func startTapped() {
         guard let selectedTarget else { return }
+        clearSelectionHighlight()
         onStartRecording?(selectedTarget)
+    }
+
+    /// 清理当前选择产生的蓝色高亮框。
+    private func clearSelectionHighlight() {
+        ScreenCaptureTargetHighlighter.shared.clearHighlight()
     }
 }
 
