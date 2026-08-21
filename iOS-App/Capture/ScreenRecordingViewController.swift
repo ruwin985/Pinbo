@@ -17,7 +17,7 @@ final class ScreenRecordingViewController: UIViewController {
     private let recordButton = UIButton(type: .system)
     private let systemBroadcastPicker = RPSystemBroadcastPickerView(frame: .zero)
     private let cameraToggleButton = UIButton(type: .system)
-    private let closeButton = UIButton(type: .system)
+    private let closeButton = UIButton(type: .custom)
     private let statusLabel = UILabel()
     private let hintLabel = UILabel()
     private let durationLabel = UILabel()
@@ -36,6 +36,10 @@ final class ScreenRecordingViewController: UIViewController {
     private var screenRecordingLookupStartDate: Date?
     private var savingAssetIdentifier: String?
     private var isHandlingPiPRestore = false
+    private var isCheckingFinishedScreenRecording = false
+    private var hasActiveScreenRecordingState: Bool {
+        isSystemRecordingActive || recordingStartDate != nil || durationTimer != nil
+    }
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -94,7 +98,7 @@ final class ScreenRecordingViewController: UIViewController {
     private func setupUI() {
         setupGradientBackground()
 
-        closeButton.setImage(UIImage(systemName: "xmark"), for: .normal)
+        closeButton.setImage(UIImage(named: "nav_back"), for: .normal)
         closeButton.tintColor = .white
         closeButton.backgroundColor = UIColor.white.withAlphaComponent(0.16)
         closeButton.layer.cornerRadius = 18
@@ -138,13 +142,14 @@ final class ScreenRecordingViewController: UIViewController {
         view.addSubview(durationLabel)
 
         recordButton.applyAppPrimaryButtonStyle(cornerRadius: 46, shadow: true)
+        recordButton.backgroundColor = .white
         recordButton.isUserInteractionEnabled = false
         view.addSubview(recordButton)
 
         systemBroadcastPicker.preferredExtension = Constants.broadcastExtensionBundleIdentifier
         systemBroadcastPicker.showsMicrophoneButton = true
         systemBroadcastPicker.backgroundColor = .clear
-        systemBroadcastPicker.tintColor = .white
+        systemBroadcastPicker.tintColor = AppTheme.primary
         systemBroadcastPicker.accessibilityLabel = "打开系统录屏"
         view.addSubview(systemBroadcastPicker)
         configureSystemBroadcastPickerAppearance()
@@ -183,13 +188,14 @@ final class ScreenRecordingViewController: UIViewController {
         }
 
         durationLabel.snp.makeConstraints { make in
-            make.top.equalTo(hintLabel.snp.bottom).offset(16)
+            make.bottom.equalTo(recordButton.snp.top).offset(-16)
             make.centerX.equalToSuperview()
         }
 
         recordButton.snp.makeConstraints { make in
             make.centerX.equalToSuperview()
-            make.centerY.equalToSuperview().offset(52)
+//            make.centerY.equalToSuperview().offset(52)
+            make.bottom.equalTo(view.safeAreaLayoutGuide).inset(46)
             make.size.equalTo(92)
         }
 
@@ -254,17 +260,28 @@ final class ScreenRecordingViewController: UIViewController {
 
     private func configureSystemBroadcastPickerAppearance() {
         systemBroadcastPicker.preferredExtension = Constants.broadcastExtensionBundleIdentifier
+        systemBroadcastPicker.tintColor = AppTheme.primary
         for subview in systemBroadcastPicker.subviews {
             if let button = subview as? UIButton {
                 button.frame = systemBroadcastPicker.bounds
                 button.autoresizingMask = [.flexibleWidth, .flexibleHeight]
                 button.backgroundColor = .clear
-                button.tintColor = systemBroadcastPicker.tintColor
+                button.tintColor = AppTheme.primary
+                button.imageView?.tintColor = AppTheme.primary
                 button.contentHorizontalAlignment = .center
                 button.contentVerticalAlignment = .center
                 button.isUserInteractionEnabled = true
+                applyTemplateImage(to: button, for: .normal)
+                applyTemplateImage(to: button, for: .highlighted)
+                applyTemplateImage(to: button, for: .selected)
+                applyTemplateImage(to: button, for: .disabled)
             }
         }
+    }
+
+    private func applyTemplateImage(to button: UIButton, for state: UIControl.State) {
+        guard let image = button.image(for: state) ?? button.image(for: .normal) else { return }
+        button.setImage(image.withRenderingMode(.alwaysTemplate), for: state)
     }
 
     private func requestPhotoPermissionIfNeeded() {
@@ -362,15 +379,7 @@ final class ScreenRecordingViewController: UIViewController {
         frontCameraSession.stopRunning()
         deactivatePictureInPictureAudioSession()
         updateCameraState(animated: true)
-    }
-
-    private func stopFrontCameraAfterPictureInPictureClosed() {
-        isFrontCameraEnabled = false
-        setPictureInPictureAutoStartEnabled(false)
-        frontCameraSession.stopRunning()
-        deactivatePictureInPictureAudioSession()
-        updateCameraState(animated: true)
-        statusLabel.text = isSystemRecordingActive ? "系统录屏中，前摄已关闭" : "前摄已关闭"
+        statusLabel.text = isSystemRecordingActive ? "系统录屏中，前摄已关闭" : "准备就绪：点中间按钮后选择开始直播"
     }
 
     private func activatePictureInPictureAudioSession() {
@@ -396,8 +405,8 @@ final class ScreenRecordingViewController: UIViewController {
     private func updateRecordingState() {
         isSystemRecordingActive = UIScreen.main.isCaptured
         let isRecording = isSystemRecordingActive
-        recordButton.backgroundColor = isRecording ? AppTheme.primaryPressed : AppTheme.primary
-        systemBroadcastPicker.tintColor = .white
+        recordButton.backgroundColor = isRecording ? .lightGray : .white
+        systemBroadcastPicker.tintColor = AppTheme.primary
         recordButton.accessibilityLabel = isRecording ? "结束录制" : "开始屏幕录制"
         systemBroadcastPicker.accessibilityLabel = isRecording ? "打开停止直播面板" : "打开系统直播屏幕面板"
         configureSystemBroadcastPickerAppearance()
@@ -409,14 +418,17 @@ final class ScreenRecordingViewController: UIViewController {
             self.cameraToggleButton.alpha = isRecording ? 0.62 : 1
         }
         if !isRecording {
+            guard !isCheckingFinishedScreenRecording else { return }
             durationLabel.text = "00:00"
             hintLabel.text = "点击中间按钮打开系统直播屏幕面板\n需要露脸时，先点上方按钮开启前摄悬浮窗"
             statusLabel.text = "准备就绪：点中间按钮后选择开始直播"
-        } else if recordingStartDate == nil {
-            recordingStartDate = Date()
-            startDurationTimer()
+        } else {
+            if recordingStartDate == nil {
+                recordingStartDate = Date()
+                startDurationTimer()
+            }
             hintLabel.text = "正在通过系统录屏，点击中间按钮打开停止直播面板"
-            statusLabel.text = "系统录屏中，停止后可保存为草稿"
+            statusLabel.text = "系统录屏中，停止后自动保存到首页"
         }
     }
 
@@ -485,20 +497,22 @@ final class ScreenRecordingViewController: UIViewController {
     }
 
     @objc private func appDidBecomeActive() {
-        let wasRecording = isSystemRecordingActive
+        let wasRecording = hasActiveScreenRecordingState
         updateRecordingState()
         if isFrontCameraEnabled {
             startCameraPictureInPictureIfPossible()
             retryStartCameraPictureInPictureIfNeeded()
         }
         if wasRecording, !UIScreen.main.isCaptured {
+            recordingStartDate = nil
+            stopDurationTimer()
             checkForFinishedScreenRecording()
         }
     }
 
     @objc private func screenCaptureDidChange() {
         DispatchQueue.main.async {
-            let wasRecording = self.isSystemRecordingActive
+            let wasRecording = self.hasActiveScreenRecordingState
             if UIScreen.main.isCaptured {
                 if !wasRecording {
                     self.screenRecordingLookupStartDate = Date().addingTimeInterval(-3)
@@ -527,6 +541,11 @@ final class ScreenRecordingViewController: UIViewController {
     }
 
     private func checkForFinishedScreenRecording(retryCount: Int = 0) {
+        if retryCount == 0 {
+            guard !isCheckingFinishedScreenRecording else { return }
+            isCheckingFinishedScreenRecording = true
+            statusLabel.text = "录屏已结束，正在保存到首页…"
+        }
         let delay: TimeInterval = retryCount == 0 ? 1.2 : 0.9
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
             guard let self else { return }
@@ -537,7 +556,11 @@ final class ScreenRecordingViewController: UIViewController {
                 } else if retryCount < 8 {
                     self.checkForFinishedScreenRecording(retryCount: retryCount + 1)
                 } else {
-                    self.statusLabel.text = "录屏已结束，但暂未从相册读取到视频"
+                    self.isCheckingFinishedScreenRecording = false
+                    self.statusLabel.text = "录屏已结束，返回首页…"
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                        self?.backToHome()
+                    }
                 }
             }
         }
@@ -546,9 +569,18 @@ final class ScreenRecordingViewController: UIViewController {
     private func saveScreenRecordingDraft(_ candidate: ScreenRecordingCandidate) {
         guard savingAssetIdentifier != candidate.assetIdentifier else {
             discardScreenRecordingCandidate(candidate)
+            isCheckingFinishedScreenRecording = false
+            backToHome()
             return
         }
-        guard FileManager.default.fileExists(atPath: candidate.videoURL.path) else { return }
+        guard FileManager.default.fileExists(atPath: candidate.videoURL.path) else {
+            isCheckingFinishedScreenRecording = false
+            statusLabel.text = "录屏文件读取失败，返回首页…"
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                self?.backToHome()
+            }
+            return
+        }
         savingAssetIdentifier = candidate.assetIdentifier
         statusLabel.text = "正在保存到首页…"
         do {
@@ -563,9 +595,11 @@ final class ScreenRecordingViewController: UIViewController {
             _ = try DraftStore.shared.save(project)
             discardScreenRecordingCandidate(candidate)
             savingAssetIdentifier = nil
+            isCheckingFinishedScreenRecording = false
             backToHome()
         } catch {
             savingAssetIdentifier = nil
+            isCheckingFinishedScreenRecording = false
             showAlert("保存草稿失败", error.localizedDescription)
         }
     }
@@ -737,10 +771,17 @@ extension ScreenRecordingViewController: AVPictureInPictureControllerDelegate {
 
     func pictureInPictureControllerDidStopPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
         guard !isHandlingPiPRestore else { return }
-        if isFrontCameraEnabled {
-            stopFrontCameraAfterPictureInPictureClosed()
-        } else {
+        guard isFrontCameraEnabled else {
             deactivatePictureInPictureAudioSession()
+            return
+        }
+        activatePictureInPictureAudioSession()
+        frontCameraSession.startRunning()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+            guard let self, self.isFrontCameraEnabled else { return }
+            self.startCameraPictureInPictureIfPossible()
+            self.retryStartCameraPictureInPictureIfNeeded()
+            self.statusLabel.text = self.isSystemRecordingActive ? "系统录屏中" : "前摄浮窗已开启，可切到桌面"
         }
     }
 }
@@ -748,6 +789,7 @@ extension ScreenRecordingViewController: AVPictureInPictureControllerDelegate {
 @available(iOS 15.0, *)
 private final class PiPCameraViewController: UIViewController {
     private let cameraSession: FrontCameraSessionController
+    private let touchShield = UIControl()
     private let closeButton = UIButton(type: .system)
     private var previewLayer: AVCaptureVideoPreviewLayer?
     var onCloseTapped: (() -> Void)?
@@ -766,6 +808,7 @@ private final class PiPCameraViewController: UIViewController {
         view.layer.cornerCurve = .continuous
         view.layer.masksToBounds = true
         attachPreviewLayer()
+        setupTouchShield()
         setupCloseButton()
     }
 
@@ -781,14 +824,25 @@ private final class PiPCameraViewController: UIViewController {
         previewLayer = layer
     }
 
+    private func setupTouchShield() {
+        touchShield.backgroundColor = .clear
+        touchShield.addTarget(self, action: #selector(ignoreCameraTap), for: .touchUpInside)
+        view.addSubview(touchShield)
+        touchShield.snp.makeConstraints { make in
+            make.edges.equalToSuperview()
+        }
+    }
+
     private func setupCloseButton() {
         let image = UIImage(systemName: "xmark",
                             withConfiguration: UIImage.SymbolConfiguration(pointSize: 16, weight: .light))
-        closeButton.setImage(image, for: .normal)
+        var configuration = UIButton.Configuration.plain()
+        configuration.image = image
+        configuration.baseForegroundColor = .white
+        configuration.contentInsets = NSDirectionalEdgeInsets(top: 12, leading: 12, bottom: 52, trailing: 52)
+        closeButton.configuration = configuration
         closeButton.tintColor = .white
         closeButton.backgroundColor = .clear
-        closeButton.contentHorizontalAlignment = .center
-        closeButton.contentVerticalAlignment = .center
         closeButton.layer.shadowColor = UIColor.black.cgColor
         closeButton.layer.shadowOpacity = 0.22
         closeButton.layer.shadowRadius = 4
@@ -796,15 +850,18 @@ private final class PiPCameraViewController: UIViewController {
         closeButton.accessibilityLabel = "关闭前置摄像头"
         closeButton.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
         view.addSubview(closeButton)
+        view.bringSubviewToFront(closeButton)
         closeButton.snp.makeConstraints { make in
-            make.top.leading.equalToSuperview().inset(12)
-            make.size.equalTo(20)
+            make.top.leading.equalToSuperview()
+            make.size.equalTo(80)
         }
     }
 
     @objc private func closeTapped() {
         onCloseTapped?()
     }
+
+    @objc private func ignoreCameraTap() {}
 }
 
 private final class FrontCameraSessionController {

@@ -1,36 +1,54 @@
 import AppKit
 import SnapKit
 
+/// 录屏内容选择页。
 final class SourcePickerViewController: NSViewController {
+    /// 用户确认录制目标后的回调。
     var onStartRecording: ((ScreenCaptureTarget) -> Void)?
+    /// 用户点击返回按钮后的回调。
     var onBack: (() -> Void)?
 
+    /// 录屏目标数据提供器。
     private let provider = ScreenCaptureTargetProvider()
+    /// 内容滚动容器。
     private let scrollView = NSScrollView()
+    /// 录屏目标网格容器。
     private let gridView = NSGridView()
+    /// 页面标题标签。
     private let titleLabel = NSTextField(labelWithString: "选择录屏内容")
-    private let subtitleLabel = NSTextField(labelWithString: "支持选择已打开的桌面、具体 App 窗口，并打开电脑摄像头作为小窗口。")
+    /// 页面说明标签。
+    private let subtitleLabel = NSTextField(labelWithString: "支持选择桌面、所有桌面中正在展示的 App 窗口，在开始录制页面支持打开电脑摄像头作为小窗口。")
+    /// 刷新可录制内容按钮。
     private let refreshButton = NSButton(title: "刷新", target: nil, action: nil)
+    /// 返回首页按钮。
     private let backButton = NSButton(title: "", target: nil, action: nil)
+    /// 确认选择按钮。
     private let startButton = NSButton(title: "确认", target: nil, action: nil)
+    /// 页面状态提示标签。
     private let statusLabel = NSTextField(labelWithString: "")
 
+    /// 当前展示的录屏目标列表。
     private var targets: [ScreenCaptureTarget] = []
+    /// 当前选中的录屏目标。
     private var selectedTarget: ScreenCaptureTarget?
+    /// 当前已创建的卡片视图。
     private var cardViews: [SourceCardView] = []
 
+    /// 创建基础视图。
     override func loadView() {
         view = NSView()
         view.wantsLayer = true
         view.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
     }
 
+    /// 页面加载后配置 UI 并读取录屏目标。
     override func viewDidLoad() {
         super.viewDidLoad()
         setupUI()
         loadTargets()
     }
 
+    /// 搭建选择页整体 UI。
     private func setupUI() {
         titleLabel.font = .systemFont(ofSize: 30, weight: .semibold)
         titleLabel.textColor = .labelColor
@@ -125,8 +143,9 @@ final class SourcePickerViewController: NSViewController {
         }
     }
 
+    /// 刷新可录制桌面和所有桌面中正在展示的窗口。
     private func loadTargets() {
-        statusLabel.stringValue = "正在读取可录制的桌面和应用窗口…"
+        statusLabel.stringValue = "正在读取所有桌面中正在展示的窗口…"
         refreshButton.isEnabled = false
         startButton.isEnabled = false
         provider.loadTargets { [weak self] result in
@@ -141,7 +160,7 @@ final class SourcePickerViewController: NSViewController {
                     self.statusLabel.stringValue = "没有找到可录制内容。请确认已授予屏幕录制权限。"
                     MacPermissionAlert.show(kind: .screenRecording, in: self.view.window)
                 } else {
-                    self.statusLabel.stringValue = "已找到 \(targets.count) 个可录制内容。首次录屏时 macOS 可能会弹出屏幕录制授权。"
+                    self.statusLabel.stringValue = "已找到 \(targets.count) 个可录制内容。点击窗口卡片会定位到对应桌面并显示蓝色边框。"
                 }
             case .failure(let error):
                 self.targets = []
@@ -153,6 +172,7 @@ final class SourcePickerViewController: NSViewController {
         }
     }
 
+    /// 按固定列数渲染录屏目标网格。
     private func renderGrid() {
         while gridView.numberOfRows > 0 {
             gridView.removeRow(at: 0)
@@ -180,14 +200,21 @@ final class SourcePickerViewController: NSViewController {
         loadVisibleThumbnails()
     }
 
+    /// 更新当前选中的录屏目标。
     private func select(_ target: ScreenCaptureTarget) {
         selectedTarget = target
         for card in cardViews {
             card.isSelected = card.captureTarget == target
         }
         startButton.isEnabled = true
+        if ScreenCaptureTargetHighlighter.shared.focusAndHighlight(target) {
+            statusLabel.stringValue = "已定位：\(target.title)"
+        } else {
+            statusLabel.stringValue = "已选择：\(target.title)。如需定位具体窗口，请在系统设置中允许辅助功能权限。"
+        }
     }
 
+    /// 为所有卡片加载缩略图。
     private func loadVisibleThumbnails() {
         for card in cardViews {
             provider.loadThumbnail(for: card.captureTarget) { [weak card] image in
@@ -196,34 +223,47 @@ final class SourcePickerViewController: NSViewController {
         }
     }
 
+    /// 响应刷新按钮点击。
     @objc private func refreshTapped() {
         loadTargets()
     }
 
+    /// 响应返回按钮点击。
     @objc private func backTapped() {
         onBack?()
     }
 
+    /// 响应确认按钮点击。
     @objc private func startTapped() {
         guard let selectedTarget else { return }
         onStartRecording?(selectedTarget)
     }
 }
 
+/// 单个录屏目标卡片。
 final class SourceCardView: NSControl {
+    /// 卡片绑定的录屏目标。
     let captureTarget: ScreenCaptureTarget
+    /// 用户选中卡片后的回调。
     var onSelect: (() -> Void)?
 
+    /// 缩略图视图。
     private let imageView = NSImageView()
+    /// 应用或桌面图标视图。
     private let iconView = NSImageView()
+    /// 标题标签。
     private let titleLabel = NSTextField(labelWithString: "")
+    /// 副标题标签。
     private let subtitleLabel = NSTextField(labelWithString: "")
+    /// 缩略图加载中的占位标签。
     private let placeholderLabel = NSTextField(labelWithString: "预览生成中…")
 
+    /// 是否处于选中状态。
     var isSelected: Bool = false {
         didSet { updateSelection() }
     }
 
+    /// 使用录屏目标创建卡片。
     init(target: ScreenCaptureTarget) {
         self.captureTarget = target
         super.init(frame: .zero)
@@ -231,10 +271,13 @@ final class SourceCardView: NSControl {
         configure(target)
     }
 
+    /// 不支持从 Interface Builder 创建。
     required init?(coder: NSCoder) { fatalError() }
 
+    /// 卡片期望尺寸。
     override var intrinsicContentSize: NSSize { NSSize(width: 260, height: 190) }
 
+    /// 搭建卡片 UI。
     private func setupUI() {
         wantsLayer = true
         layer?.cornerRadius = 18
@@ -308,6 +351,7 @@ final class SourceCardView: NSControl {
         updateSelection()
     }
 
+    /// 用录屏目标填充卡片文本和图标。
     private func configure(_ target: ScreenCaptureTarget) {
         titleLabel.stringValue = target.title
         subtitleLabel.stringValue = target.subtitle ?? ""
@@ -315,19 +359,23 @@ final class SourceCardView: NSControl {
         iconView.image = target.icon
     }
 
+    /// 更新卡片缩略图。
     func setThumbnail(_ image: NSImage?) {
         imageView.image = image
         placeholderLabel.isHidden = image != nil
     }
 
+    /// 鼠标点击卡片时触发选择。
     override func mouseDown(with event: NSEvent) {
         onSelect?()
     }
 
+    /// 配置鼠标悬停手型光标。
     override func resetCursorRects() {
         addCursorRect(bounds, cursor: .pointingHand)
     }
 
+    /// 根据选中状态更新卡片描边和背景。
     private func updateSelection() {
         if isSelected {
             layer?.borderWidth = 2.5

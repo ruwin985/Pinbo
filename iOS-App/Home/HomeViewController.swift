@@ -8,6 +8,7 @@ final class HomeViewController: UIViewController {
 
     private var drafts: [RecordingProject] = []
     private lazy var collectionView: UICollectionView = makeCollectionView()
+    private lazy var emptyStateView = makeEmptyStateView()
     private let recordButton = UIButton(type: .custom)
     private let recordOptionsBackdrop = UIControl()
     private let recordOptionsBubble = UIView()
@@ -42,7 +43,7 @@ final class HomeViewController: UIViewController {
     // MARK: - UI
 
     private func setupUI() {
-        menuButton.setTitle("≡", for: .normal)
+        menuButton.setTitle("=", for: .normal)
         menuButton.setTitleColor(.white, for: .normal)
         menuButton.titleLabel?.font = .systemFont(ofSize: 28, weight: .semibold)
         menuButton.backgroundColor = UIColor.white.withAlphaComponent(0.12)
@@ -67,6 +68,9 @@ final class HomeViewController: UIViewController {
         collectionView.delegate = self
         collectionView.register(DraftCell.self, forCellWithReuseIdentifier: DraftCell.reuseID)
         view.addSubview(collectionView)
+
+        emptyStateView.isHidden = true
+        view.addSubview(emptyStateView)
 
         let longPress = UILongPressGestureRecognizer(target: self, action: #selector(draftLongPressed(_:)))
         collectionView.addGestureRecognizer(longPress)
@@ -105,6 +109,12 @@ final class HomeViewController: UIViewController {
             make.top.equalTo(titleLabel.snp.bottom).offset(12)
             make.leading.trailing.equalToSuperview()
             make.bottom.equalTo(recordButton.snp.top).offset(-16)
+        }
+
+        emptyStateView.snp.makeConstraints { make in
+            make.centerX.equalToSuperview()
+            make.centerY.equalToSuperview().offset(-28)
+            make.leading.trailing.equalToSuperview().inset(36)
         }
 
         recordButton.snp.makeConstraints { make in
@@ -361,6 +371,43 @@ final class HomeViewController: UIViewController {
         return UICollectionView(frame: .zero, collectionViewLayout: layout)
     }
 
+    private func makeEmptyStateView() -> UIView {
+        let container = UIView()
+        container.isUserInteractionEnabled = false
+
+        let iconView = UIImageView(image: UIImage(systemName: "video.badge.plus"))
+        iconView.tintColor = UIColor.white.withAlphaComponent(0.5)
+        iconView.contentMode = .scaleAspectFit
+
+        let titleLabel = UILabel()
+        titleLabel.text = "还没有作品"
+        titleLabel.textColor = .white
+        titleLabel.font = .systemFont(ofSize: 20, weight: .semibold)
+        titleLabel.textAlignment = .center
+
+        let subtitleLabel = UILabel()
+        subtitleLabel.text = "快去拍摄吧，记录你的第一个视频"
+        subtitleLabel.textColor = UIColor.white.withAlphaComponent(0.58)
+        subtitleLabel.font = .systemFont(ofSize: 14, weight: .medium)
+        subtitleLabel.textAlignment = .center
+        subtitleLabel.numberOfLines = 0
+
+        let stackView = UIStackView(arrangedSubviews: [iconView, titleLabel, subtitleLabel])
+        stackView.axis = .vertical
+        stackView.alignment = .center
+        stackView.spacing = 10
+        container.addSubview(stackView)
+
+        iconView.snp.makeConstraints { make in
+            make.size.equalTo(42)
+        }
+        stackView.snp.makeConstraints { make in
+            make.edges.equalToSuperview()
+        }
+
+        return container
+    }
+
     // MARK: - Breathing
 
     private func startBreathing() {
@@ -387,6 +434,30 @@ final class HomeViewController: UIViewController {
     private func reloadDrafts() {
         drafts = DraftStore.shared.loadAll()
         collectionView.reloadData()
+        updateEmptyStateVisibility(animated: false)
+    }
+
+    private func updateEmptyStateVisibility(animated: Bool) {
+        let shouldShowEmptyState = drafts.isEmpty
+        if shouldShowEmptyState {
+            emptyStateView.isHidden = false
+        }
+        let changes = {
+            self.emptyStateView.alpha = shouldShowEmptyState ? 1 : 0
+        }
+        let completion: (Bool) -> Void = { _ in
+            self.emptyStateView.isHidden = !shouldShowEmptyState
+        }
+        if animated {
+            UIView.animate(withDuration: 0.2,
+                           delay: 0,
+                           options: [.beginFromCurrentState, .allowUserInteraction],
+                           animations: changes,
+                           completion: completion)
+        } else {
+            changes()
+            completion(true)
+        }
     }
 
     private func setEditingDrafts(_ editing: Bool) {
@@ -632,6 +703,7 @@ final class HomeViewController: UIViewController {
                 try DraftStore.shared.delete(project.id)
                 self.drafts.removeAll { $0.id == project.id }
                 self.collectionView.reloadData()
+                self.updateEmptyStateVisibility(animated: true)
             } catch {
                 self.presentAppMessage(title: "删除失败", message: error.localizedDescription)
             }
