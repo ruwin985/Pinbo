@@ -558,7 +558,8 @@ final class ScreenRecordingViewController: UIViewController {
                                            pipTrack: [],
                                            subtitleTrack: [],
                                            isDraft: true,
-                                           aspect: AspectSettings(isPiPEnabled: false))
+                                           aspect: AspectSettings(isPiPEnabled: false),
+                                           sourceKind: .screen)
             _ = try DraftStore.shared.save(project)
             discardScreenRecordingCandidate(candidate)
             savingAssetIdentifier = nil

@@ -64,6 +64,12 @@ public struct SubtitleLayout: Codable, Equatable {
     }
 }
 
+/// 录制项目的来源类型，用于决定默认画布该按录制视口还是源视频比例还原。
+public enum RecordingSourceKind: String, Codable, Equatable {
+    case camera
+    case screen
+}
+
 /// 一个录制项目：非破坏性编辑的核心数据结构。
 public struct RecordingProject: Codable, Equatable {
     public var id: UUID
@@ -81,6 +87,10 @@ public struct RecordingProject: Codable, Equatable {
     public var isDraft: Bool
     /// 大窗/小窗比例与小窗圆角设置。
     public var aspect: AspectSettings
+    /// 项目来源：手机摄像头录制按录制页视口还原；录屏按源视频比例还原。
+    public var sourceKind: RecordingSourceKind
+    /// 手机摄像头默认比例下，小窗关键帧归一化时使用的录制页视口尺寸。
+    public var captureViewportSize: CGSize?
 
     public init(
         id: UUID = UUID(),
@@ -93,7 +103,9 @@ public struct RecordingProject: Codable, Equatable {
         subtitleTrack: [SubtitleSegment] = [],
         subtitleLayout: SubtitleLayout = SubtitleLayout(),
         isDraft: Bool = false,
-        aspect: AspectSettings = AspectSettings()
+        aspect: AspectSettings = AspectSettings(),
+        sourceKind: RecordingSourceKind = .screen,
+        captureViewportSize: CGSize? = nil
     ) {
         self.id = id
         self.createdAt = createdAt
@@ -106,6 +118,8 @@ public struct RecordingProject: Codable, Equatable {
         self.subtitleLayout = subtitleLayout
         self.isDraft = isDraft
         self.aspect = aspect
+        self.sourceKind = sourceKind
+        self.captureViewportSize = captureViewportSize
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -120,6 +134,8 @@ public struct RecordingProject: Codable, Equatable {
         case subtitleLayout
         case isDraft
         case aspect
+        case sourceKind
+        case captureViewportSize
     }
 
     public init(from decoder: Decoder) throws {
@@ -129,12 +145,21 @@ public struct RecordingProject: Codable, Equatable {
         mainVideoURL = try container.decodeIfPresent(URL.self, forKey: .mainVideoURL)
         pipVideoURL = try container.decodeIfPresent(URL.self, forKey: .pipVideoURL)
         duration = try container.decode(TimeInterval.self, forKey: .duration)
-        pipTrack = try container.decode([PiPKeyframe].self, forKey: .pipTrack)
-        splitScreenTrack = try container.decodeIfPresent([SplitScreenKeyframe].self, forKey: .splitScreenTrack) ?? []
+        let decodedPipTrack = try container.decode([PiPKeyframe].self, forKey: .pipTrack)
+        let decodedSplitScreenTrack = try container.decodeIfPresent([SplitScreenKeyframe].self, forKey: .splitScreenTrack) ?? []
+        pipTrack = decodedPipTrack
+        splitScreenTrack = decodedSplitScreenTrack
         subtitleTrack = try container.decode([SubtitleSegment].self, forKey: .subtitleTrack)
         subtitleLayout = try container.decodeIfPresent(SubtitleLayout.self, forKey: .subtitleLayout) ?? SubtitleLayout()
         isDraft = try container.decode(Bool.self, forKey: .isDraft)
-        aspect = try container.decodeIfPresent(AspectSettings.self, forKey: .aspect) ?? AspectSettings()
+        let decodedAspect = try container.decodeIfPresent(AspectSettings.self, forKey: .aspect) ?? AspectSettings()
+        aspect = decodedAspect
+        sourceKind = try container.decodeIfPresent(RecordingSourceKind.self, forKey: .sourceKind)
+            ?? Self.inferSourceKind(aspect: decodedAspect,
+                                    pipVideoURL: pipVideoURL,
+                                    pipTrack: decodedPipTrack,
+                                    splitScreenTrack: decodedSplitScreenTrack)
+        captureViewportSize = try container.decodeIfPresent(CGSize.self, forKey: .captureViewportSize)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -150,5 +175,20 @@ public struct RecordingProject: Codable, Equatable {
         try container.encode(subtitleLayout, forKey: .subtitleLayout)
         try container.encode(isDraft, forKey: .isDraft)
         try container.encode(aspect, forKey: .aspect)
+        try container.encode(sourceKind, forKey: .sourceKind)
+        try container.encodeIfPresent(captureViewportSize, forKey: .captureViewportSize)
+    }
+
+    private static func inferSourceKind(aspect: AspectSettings,
+                                        pipVideoURL: URL?,
+                                        pipTrack: [PiPKeyframe],
+                                        splitScreenTrack: [SplitScreenKeyframe]) -> RecordingSourceKind {
+        if aspect.isSplitScreenEnabled || !splitScreenTrack.isEmpty {
+            return .camera
+        }
+        if aspect.recordsSecondaryVideo || pipVideoURL != nil || !pipTrack.isEmpty {
+            return .camera
+        }
+        return .screen
     }
 }

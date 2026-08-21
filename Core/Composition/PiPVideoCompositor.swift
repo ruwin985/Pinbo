@@ -60,6 +60,7 @@ final class PiPCompositionInstruction: NSObject, AVVideoCompositionInstructionPr
     var pipKeyframes: [PiPKeyframe] = []
     var pipAspect: AspectRatio = .default
     var pipCornerRatio: CGFloat = 0.12
+    var fitsMainContent: Bool = false
     var isSplitScreenEnabled: Bool = false
     var splitScreenOrder: CameraSplitOrder = .frontTop
     var splitScreenKeyframes: [SplitScreenKeyframe] = []
@@ -81,7 +82,7 @@ final class PiPCompositionInstruction: NSObject, AVVideoCompositionInstructionPr
     }
 }
 
-/// 自定义视频合成器（CoreImage + Metal）：主画面 aspectFill + 画中画（关键帧移动、圆角/圆形）+ 字幕。
+/// 自定义视频合成器（CoreImage + Metal）：主画面适配比例 + 画中画（关键帧移动、圆角/圆形）+ 字幕。
 /// 复用单个 Metal-backed CIContext，性能良好；不使用 postProcessingAsVideoLayers（避免其不稳定性）。
 final class PiPVideoCompositor: NSObject, AVVideoCompositing {
 
@@ -150,7 +151,9 @@ final class PiPVideoCompositor: NSObject, AVVideoCompositing {
                 if let mainBuf = request.sourceFrame(byTrackID: instruction.mainTrackID) {
                     var mainImg = CIImage(cvPixelBuffer: mainBuf)
                     mainImg = self.oriented(mainImg, transform: instruction.mainTransform)
-                    let main = self.aspectFill(mainImg, into: canvas)
+                    let main = instruction.fitsMainContent
+                        ? self.aspectFit(mainImg, into: canvas)
+                        : self.aspectFill(mainImg, into: canvas)
                     output = main.composited(over: output)
                 }
 
@@ -239,6 +242,17 @@ final class PiPVideoCompositor: NSObject, AVVideoCompositing {
         let ty = (size.height - sExt.height) / 2 - sExt.origin.y
         return scaled.transformed(by: CGAffineTransform(translationX: tx, y: ty))
             .cropped(to: CGRect(origin: .zero, size: size))
+    }
+
+    private func aspectFit(_ image: CIImage, into size: CGSize) -> CIImage {
+        let ext = image.extent
+        guard ext.width > 0, ext.height > 0 else { return image }
+        let scale = min(size.width / ext.width, size.height / ext.height)
+        let scaled = image.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+        let sExt = scaled.extent
+        let tx = (size.width - sExt.width) / 2 - sExt.origin.x
+        let ty = (size.height - sExt.height) / 2 - sExt.origin.y
+        return scaled.transformed(by: CGAffineTransform(translationX: tx, y: ty))
     }
 
     private func roundedMask(_ image: CIImage, size: CGSize, cornerRatio: CGFloat) -> CIImage {

@@ -16,6 +16,7 @@ final class EditorViewController: UIViewController {
     private let previewContainer = UIView()
     private var player: AVPlayer?
     private var playerLayer: AVPlayerLayer?
+    private var previewRenderSize: CGSize?
     private var timeObserver: Any?
     private var itemStatusObservation: NSKeyValueObservation?
     private let subtitleOverlay = UILabel()
@@ -23,7 +24,7 @@ final class EditorViewController: UIViewController {
 
     // 顶部
     private let topBar = UIStackView()
-    private let cancelButton = UIButton(type: .system)
+    private let cancelButton = UIButton(type: .custom)
     private let saveButton = UIButton(type: .system)
     private let subtitleHintLabel = UILabel()
 
@@ -86,9 +87,10 @@ final class EditorViewController: UIViewController {
 
     private func setupUI() {
         // 顶部栏
-        cancelButton.setTitle("取消", for: .normal)
-        cancelButton.setTitleColor(.white, for: .normal)
-        cancelButton.titleLabel?.font = .systemFont(ofSize: 17)
+//        cancelButton.setTitle("取消", for: .normal)
+//        cancelButton.setTitleColor(.white, for: .normal)
+//        cancelButton.titleLabel?.font = .systemFont(ofSize: 17)
+        cancelButton.setImage(UIImage(named: "nav_back"), for: .normal)
         cancelButton.addTarget(self, action: #selector(cancelTapped), for: .touchUpInside)
 
         saveButton.setTitle("保存", for: .normal)
@@ -109,6 +111,7 @@ final class EditorViewController: UIViewController {
 
         // 预览
         previewContainer.backgroundColor = .black
+        previewContainer.clipsToBounds = true
 
         subtitleOverlay.textColor = .white
         subtitleOverlay.numberOfLines = 3
@@ -267,7 +270,7 @@ final class EditorViewController: UIViewController {
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-        playerLayer?.frame = previewContainer.bounds
+        layoutPlayerLayer()
         layoutSubtitleOverlay()
     }
 
@@ -279,6 +282,7 @@ final class EditorViewController: UIViewController {
         let item: AVPlayerItem
         do {
             let built = try compositor.build(project: project, includeSubtitles: false)
+            previewRenderSize = built.videoComposition.renderSize
             applyMediaDuration(built.composition.duration.seconds)
             item = AVPlayerItem(asset: built.composition)
             item.videoComposition = built.videoComposition
@@ -291,7 +295,7 @@ final class EditorViewController: UIViewController {
         player.automaticallyWaitsToMinimizeStalling = false
         let layer = AVPlayerLayer(player: player)
         layer.videoGravity = .resizeAspect
-        layer.frame = previewContainer.bounds
+        layer.frame = previewVideoRect()
         previewContainer.layer.insertSublayer(layer, at: 0)
         self.player = player
         self.playerLayer = layer
@@ -373,7 +377,7 @@ final class EditorViewController: UIViewController {
 
     private func previewVideoRect() -> CGRect {
         guard previewContainer.bounds.width > 0, previewContainer.bounds.height > 0 else { return previewContainer.bounds }
-        let canvas = project.aspect.main.canvasSize()
+        let canvas = previewRenderSize ?? project.aspect.main.canvasSize()
         guard canvas.width > 0, canvas.height > 0 else { return previewContainer.bounds }
         let scale = min(previewContainer.bounds.width / canvas.width,
                         previewContainer.bounds.height / canvas.height)
@@ -382,6 +386,10 @@ final class EditorViewController: UIViewController {
                       y: (previewContainer.bounds.height - size.height) / 2,
                       width: size.width,
                       height: size.height)
+    }
+
+    private func layoutPlayerLayer() {
+        playerLayer?.frame = previewVideoRect()
     }
 
     private func subtitleInset(in bounds: CGRect) -> CGFloat {
@@ -661,7 +669,7 @@ final class EditorViewController: UIViewController {
             self.controlRow.backgroundColor = fullscreen ? UIColor.black.withAlphaComponent(0.55) : .clear
             self.timeline.alpha = fullscreen ? 0 : 1
             self.view.layoutIfNeeded()
-            self.playerLayer?.frame = self.previewContainer.bounds
+            self.layoutPlayerLayer()
             self.updateScreenCaptureOverlayVisibility()
         }
 
@@ -677,7 +685,7 @@ final class EditorViewController: UIViewController {
                 self.view.bringSubviewToFront(self.timeline)
                 self.view.bringSubviewToFront(self.activity)
             }
-            self.playerLayer?.frame = self.previewContainer.bounds
+            self.layoutPlayerLayer()
         }
 
         setNeedsStatusBarAppearanceUpdate()

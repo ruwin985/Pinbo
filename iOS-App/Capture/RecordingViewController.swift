@@ -207,7 +207,7 @@ final class RecordingViewController: UIViewController {
 
         // 主画面预览（后摄，全屏）
         if let mainLayer = source.makeMainPreviewLayer() {
-            let container = PreviewLayerView(previewLayer: mainLayer)
+            let container = PreviewLayerView(previewLayer: mainLayer, videoGravity: mainPreviewGravity)
             let dismissKeyboardTap = UITapGestureRecognizer(target: self, action: #selector(dismissPromptKeyboard))
             dismissKeyboardTap.cancelsTouchesInView = false
             container.addGestureRecognizer(dismissKeyboardTap)
@@ -491,6 +491,7 @@ final class RecordingViewController: UIViewController {
     }
 
     private func updateCameraPresentation() {
+        mainPreviewContainer?.videoGravity = mainPreviewGravity
         if aspect.isSplitScreenEnabled {
             pipView?.removeFromSuperview()
             pipView = nil
@@ -520,7 +521,7 @@ final class RecordingViewController: UIViewController {
 
     private func ensureSplitPreviewView() {
         guard frontSplitPreviewContainer == nil, let frontLayer = source.makePiPPreviewLayer() else { return }
-        let container = PreviewLayerView(previewLayer: frontLayer)
+        let container = PreviewLayerView(previewLayer: frontLayer, videoGravity: .resizeAspectFill)
         addSplitOrderGesture(to: container)
         if let mainPreviewContainer {
             view.insertSubview(container, aboveSubview: mainPreviewContainer)
@@ -532,6 +533,7 @@ final class RecordingViewController: UIViewController {
 
     private func updateMainPreviewLayoutForFullScreen() {
         guard let mainPreviewContainer else { return }
+        mainPreviewContainer.videoGravity = mainPreviewGravity
         mainPreviewContainer.snp.remakeConstraints { make in
             make.edges.equalToSuperview()
         }
@@ -587,7 +589,7 @@ final class RecordingViewController: UIViewController {
 
     private func ensurePiPView() {
         guard pipView == nil, let pipLayer = source.makePiPPreviewLayer() else { return }
-        let content = PreviewLayerView(previewLayer: pipLayer)
+        let content = PreviewLayerView(previewLayer: pipLayer, videoGravity: .resizeAspect)
         let pip = PiPPreviewView(contentView: content)
         view.layoutIfNeeded()
         pip.frame = CGRect(x: closeButton.frame.minX,
@@ -601,6 +603,10 @@ final class RecordingViewController: UIViewController {
         if let promptPanel, !promptPanel.isHidden {
             view.bringSubviewToFront(promptPanel)
         }
+    }
+
+    private var mainPreviewGravity: AVLayerVideoGravity {
+        .resizeAspectFill
     }
 
     override func viewDidLayoutSubviews() {
@@ -617,7 +623,14 @@ extension RecordingViewController: CaptureSourceDelegate {
         switch state {
         case .recording: statusLabel.text = "● 录制中…"
         case .stopped: statusLabel.text = "录制完成"
-        case .failed(let msg): statusLabel.text = "错误：\(msg)"
+        case .failed(let msg):
+            statusLabel.text = "错误：\(msg)"
+            speech.stop()
+            promptPanel?.stopAutoScroll()
+            stopRecordingDurationTimer()
+            subtitleSessionActive = false
+            pendingFinish = nil
+            applyRecordButtonState(isRecording: false)
         default: break
         }
     }
@@ -648,7 +661,9 @@ extension RecordingViewController: CaptureSourceDelegate {
             pipTrack: aspect.isPiPEnabled ? pipTrack : [],
             splitScreenTrack: aspect.isSplitScreenEnabled ? splitScreenTrack : [],
             subtitleTrack: subtitleTrack.sorted { $0.startTime < $1.startTime },
-            aspect: aspect
+            aspect: aspect,
+            sourceKind: .camera,
+            captureViewportSize: view.bounds.size
         )
         self.source.stopRunning()
         let editor = EditorViewController(project: project)

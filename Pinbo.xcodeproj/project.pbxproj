@@ -11,6 +11,7 @@
 		01ECB039F7DD9668BFD9C5C4 /* Project.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0104C96D0BD960844FF2C9B /* Project.swift */; };
 		0490FEFA2A983BC030B9FCFE /* CaptureSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = D56F7585E66471B8DED19FF4 /* CaptureSource.swift */; };
 		09B43C3697F18C92E6C03AFA /* PermissionSheetViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F7FBAE78AF2768F2AA454F4 /* PermissionSheetViewController.swift */; };
+		09FE3B719A51D982925C8D09 /* CameraSmokeTestRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB3DB4A83CA25197BCC8821C /* CameraSmokeTestRunner.swift */; };
 		0A51A40E72AB6EF9B2939AA6 /* DualCameraSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 056D5D3EE8C12400DB28587B /* DualCameraSource.swift */; };
 		0FF083B0DE808FDC8295535B /* DraftCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1601DC88FE110A3AB7249995 /* DraftCell.swift */; };
 		13BB4BF9D0D6CB6FC51FFBC3 /* CaptureSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5373A4081352930DC0EEEB1B /* CaptureSettings.swift */; };
@@ -129,6 +130,7 @@
 		B7506DE4AFCDC89864BF894A /* HomeViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeViewController.swift; sourceTree = "<group>"; };
 		B8CBB88D87FBFC22462B5A9F /* PinboScreenBroadcastExtension.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = PinboScreenBroadcastExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		B9A55C5F266E71BD6EF8FC82 /* SourcePickerViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourcePickerViewController.swift; sourceTree = "<group>"; };
+		BB3DB4A83CA25197BCC8821C /* CameraSmokeTestRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraSmokeTestRunner.swift; sourceTree = "<group>"; };
 		BC2D345B4EBEDA79A225B41D /* TimelineView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineView.swift; sourceTree = "<group>"; };
 		C5EA023358DDCDDE1DDDB007 /* AVCapturePreviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AVCapturePreviewView.swift; sourceTree = "<group>"; };
 		C851115FE9FA42E26FE76C62 /* SheetCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SheetCard.swift; sourceTree = "<group>"; };
@@ -211,6 +213,7 @@
 			isa = PBXGroup;
 			children = (
 				780EE4168B0B518C7C186477 /* AppDelegate.swift */,
+				BB3DB4A83CA25197BCC8821C /* CameraSmokeTestRunner.swift */,
 				A6080E51086B0A4D0791C0D0 /* SceneDelegate.swift */,
 			);
 			path = App;
@@ -530,6 +533,7 @@
 				89CBE54D3E5534D094BE1510 /* AppDelegate.swift in Sources */,
 				1C39DFFB9BF433614E2C8EDB /* AppTheme.swift in Sources */,
 				378868A2BDE561DE5F7EE7F7 /* AspectSettingsViewController.swift in Sources */,
+				09FE3B719A51D982925C8D09 /* CameraSmokeTestRunner.swift in Sources */,
 				13BB4BF9D0D6CB6FC51FFBC3 /* CaptureSettings.swift in Sources */,
 				0490FEFA2A983BC030B9FCFE /* CaptureSource.swift in Sources */,
 				0FF083B0DE808FDC8295535B /* DraftCell.swift in Sources */,

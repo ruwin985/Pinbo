@@ -91,10 +91,9 @@ public final class VideoCompositor {
             }
         }
 
-        // 默认比例用于录屏：保持源视频完整比例，避免把桌面裁成竖屏局部画面。
-        let canvas = project.aspect.main.isDefault
-            ? Self.canvasSize(for: mainVideoTrack, longEdge: exportLongEdge)
-            : project.aspect.main.canvasSize(longEdge: exportLongEdge)
+        let canvas = Self.renderCanvasSize(for: mainVideoTrack,
+                                           project: project,
+                                           longEdge: exportLongEdge)
 
         let videoComposition = AVMutableVideoComposition()
         videoComposition.renderSize = canvas
@@ -105,7 +104,9 @@ public final class VideoCompositor {
                                                      mainTrackID: mainTrackID,
                                                      pipTrackID: hasPip ? pipTrackID : nil)
         instruction.canvas = canvas
-        instruction.pipKeyframes = shifted(project.pipTrack, by: startSeconds)
+        instruction.fitsMainContent = project.aspect.main.isDefault && project.sourceKind == .screen
+        instruction.pipKeyframes = mappedPiPKeyframes(shifted(project.pipTrack, by: startSeconds),
+                                                      for: project)
         instruction.pipAspect = project.aspect.pip.aspect
         instruction.pipCornerRatio = project.aspect.pip.cornerRatio
         instruction.isSplitScreenEnabled = project.aspect.isSplitScreenEnabled
@@ -183,6 +184,32 @@ public final class VideoCompositor {
         return shifted
     }
 
+    private func mappedPiPKeyframes(_ keyframes: [PiPKeyframe],
+                                    for project: RecordingProject) -> [PiPKeyframe] {
+        guard project.sourceKind == .camera,
+              !project.aspect.main.isDefault,
+              !project.aspect.isSplitScreenEnabled,
+              let viewport = project.captureViewportSize,
+              viewport.width > 0,
+              viewport.height > 0 else { return keyframes }
+
+        let captureRect = Self.aspectRect(for: project.aspect.main.ratio, in: viewport)
+        guard captureRect.width > 0, captureRect.height > 0 else { return keyframes }
+
+        return keyframes.map { keyframe in
+            let absoluteCenter = CGPoint(x: keyframe.center.x * viewport.width,
+                                         y: keyframe.center.y * viewport.height)
+            let absoluteSize = CGSize(width: keyframe.size.width * viewport.width,
+                                      height: keyframe.size.height * viewport.height)
+            return PiPKeyframe(time: keyframe.time,
+                               center: CGPoint(x: (absoluteCenter.x - captureRect.minX) / captureRect.width,
+                                               y: (absoluteCenter.y - captureRect.minY) / captureRect.height),
+                               size: CGSize(width: absoluteSize.width / captureRect.width,
+                                            height: absoluteSize.height / captureRect.height),
+                               cornerRadius: keyframe.cornerRadius)
+        }
+    }
+
     private func shifted(_ keyframes: [SplitScreenKeyframe],
                          by offset: TimeInterval,
                          fallback: CameraSplitOrder) -> [SplitScreenKeyframe] {
@@ -223,16 +250,65 @@ public final class VideoCompositor {
         return candidates.first { $0.isFinite && $0 > 0 } ?? 0
     }
 
-    private static func canvasSize(for track: AVAssetTrack, longEdge: CGFloat) -> CGSize {
+    private static func renderCanvasSize(for track: AVAssetTrack,
+                                         project: RecordingProject,
+                                         longEdge: CGFloat) -> CGSize {
+        guard project.aspect.main.isDefault else {
+            return project.aspect.main.canvasSize(longEdge: longEdge)
+        }
+        switch project.sourceKind {
+        case .camera:
+            if let viewport = project.captureViewportSize,
+               viewport.width > 0,
+               viewport.height > 0 {
+                return canvasSize(forAspectRatio: viewport.width / viewport.height,
+                                  longEdge: longEdge)
+            }
+            return AspectRatio.default.canvasSize(longEdge: longEdge)
+        case .screen:
+            return sourceCanvasSize(for: track, longEdge: longEdge)
+        }
+    }
+
+    private static func sourceCanvasSize(for track: AVAssetTrack, longEdge: CGFloat) -> CGSize {
         let transformedSize = track.naturalSize.applying(track.preferredTransform)
         let sourceSize = CGSize(width: abs(transformedSize.width), height: abs(transformedSize.height))
         guard sourceSize.width > 0, sourceSize.height > 0 else {
             return AspectRatio.default.canvasSize(longEdge: longEdge)
         }
-        let scale = longEdge / max(sourceSize.width, sourceSize.height)
-        let width = max(2, (sourceSize.width * scale).roundedToEven())
-        let height = max(2, (sourceSize.height * scale).roundedToEven())
-        return CGSize(width: width, height: height)
+        return canvasSize(forAspectRatio: sourceSize.width / sourceSize.height,
+                          longEdge: longEdge)
+    }
+
+    private static func canvasSize(forAspectRatio ratio: CGFloat, longEdge: CGFloat) -> CGSize {
+        let safeRatio = max(ratio, 0.01)
+        let width: CGFloat
+        let height: CGFloat
+        if safeRatio >= 1 {
+            width = longEdge
+            height = longEdge / safeRatio
+        } else {
+            width = longEdge * safeRatio
+            height = longEdge
+        }
+        return CGSize(width: max(2, width.roundedToEven()),
+                      height: max(2, height.roundedToEven()))
+    }
+
+    private static func aspectRect(for ratio: CGFloat, in size: CGSize) -> CGRect {
+        guard ratio > 0, size.width > 0, size.height > 0 else {
+            return CGRect(origin: .zero, size: size)
+        }
+        var width = size.width
+        var height = width / ratio
+        if height > size.height {
+            height = size.height
+            width = height * ratio
+        }
+        return CGRect(x: (size.width - width) / 2,
+                      y: (size.height - height) / 2,
+                      width: width,
+                      height: height)
     }
 
 }

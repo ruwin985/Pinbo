@@ -288,7 +288,8 @@ final class MacRecordingViewController: NSViewController {
                                        duration: duration,
                                        pipTrack: aspect.isPiPEnabled ? pipTrack : [],
                                        subtitleTrack: isSubtitleEnabled ? subtitleTrack.sorted { $0.startTime < $1.startTime } : [],
-                                       aspect: aspect)
+                                       aspect: aspect,
+                                       sourceKind: .screen)
         statusLabel.stringValue = isSubtitleEnabled ? "正在合成字幕到视频文件…" : "正在合成视频文件…"
         exportAndSave(project)
     }

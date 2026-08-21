@@ -38,9 +38,9 @@ public protocol CaptureSourceProviding: AnyObject {
     func configure() throws
 
     /// 主画面预览层（后摄，全屏）
-    func makeMainPreviewLayer() -> AVCaptureVideoPreviewLayer?
+    func makeMainPreviewLayer() -> CALayer?
     /// 画中画预览层（前摄，小窗）
-    func makePiPPreviewLayer() -> AVCaptureVideoPreviewLayer?
+    func makePiPPreviewLayer() -> CALayer?
 
     func startRunning()
     func stopRunning()
