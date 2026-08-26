@@ -16,8 +16,7 @@ settings:
 
 packages:
   SnapKit:
-    url: https://github.com/SnapKit/SnapKit.git
-    from: 6.0.0
+    path: Packages/SnapKit
 
 schemes:
   Pinbo:
