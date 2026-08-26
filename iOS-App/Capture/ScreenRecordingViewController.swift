@@ -15,6 +15,71 @@ private func logFlag(_ value: Bool) -> String {
     value ? "true" : "false"
 }
 
+/// 在录屏页退出后继续负责关闭系统 PiP，避免系统广播面板遮挡期间 stop 请求被延迟。
+private final class ScreenRecordingPiPCleanupCoordinator: NSObject, AVPictureInPictureControllerDelegate {
+    static let shared = ScreenRecordingPiPCleanupCoordinator()
+
+    private var controller: AVPictureInPictureController?
+    private var stopRetryWorkItem: DispatchWorkItem?
+
+    private override init() {
+        super.init()
+        NotificationCenter.default.addObserver(self,
+                                               selector: #selector(appDidBecomeActive),
+                                               name: UIApplication.didBecomeActiveNotification,
+                                               object: nil)
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    func takeOverAndStop(_ controller: AVPictureInPictureController) {
+        stopRetryWorkItem?.cancel()
+        self.controller = controller
+        controller.delegate = self
+        if #available(iOS 14.2, *) {
+            controller.canStartPictureInPictureAutomaticallyFromInline = false
+        }
+        controller.stopPictureInPicture()
+        scheduleStopRetry()
+    }
+
+    @objc private func appDidBecomeActive() {
+        stopRetainedPictureInPicture()
+    }
+
+    private func stopRetainedPictureInPicture() {
+        guard let controller else { return }
+        if controller.isPictureInPictureActive {
+            controller.stopPictureInPicture()
+            scheduleStopRetry()
+        } else {
+            releaseController()
+        }
+    }
+
+    private func scheduleStopRetry() {
+        stopRetryWorkItem?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.stopRetainedPictureInPicture()
+        }
+        stopRetryWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: workItem)
+    }
+
+    private func releaseController() {
+        stopRetryWorkItem?.cancel()
+        stopRetryWorkItem = nil
+        controller?.delegate = nil
+        controller = nil
+    }
+
+    func pictureInPictureControllerDidStopPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
+        releaseController()
+    }
+}
+
 /// 手机端屏幕录制页：用户手动开启前摄悬浮窗，点击中间按钮开始/结束系统录屏。
 final class ScreenRecordingViewController: UIViewController {
     private enum Constants {
@@ -37,6 +102,9 @@ final class ScreenRecordingViewController: UIViewController {
     private let statusLabel = UILabel()
     private let hintLabel = UILabel()
     private let durationLabel = UILabel()
+    private let processingOverlay = UIView()
+    private let processingIndicator = UIActivityIndicatorView(style: .large)
+    private let processingLabel = UILabel()
     private let cameraContainer = UIView()
     private let pictureInPictureSourceView = UIView()
     /// 供系统 PiP 镜像的样本缓冲显示层。
@@ -63,6 +131,8 @@ final class ScreenRecordingViewController: UIViewController {
     private var isHandlingPiPRestore = false
     /// 标记前摄当前恢复在页面内预览，避免前台自动再次拉起系统 PiP。
     private var isFrontCameraRestoredInline = false
+    /// 标记下一次 PiP 停止是用户通过页面按钮主动触发的，不应再次关闭前摄状态。
+    private var shouldIgnoreNextPictureInPictureStop = false
     private var isCheckingFinishedScreenRecording = false
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -215,6 +285,7 @@ final class ScreenRecordingViewController: UIViewController {
         setupPreviewBackdrop()
         setupCameraContainer()
         setupPictureInPictureSourceView()
+        setupProcessingOverlay()
 
         closeButton.snp.makeConstraints { make in
             make.top.equalTo(view.safeAreaLayoutGuide).offset(12)
@@ -260,6 +331,55 @@ final class ScreenRecordingViewController: UIViewController {
             make.bottom.equalTo(view.safeAreaLayoutGuide).inset(24)
         }
 
+    }
+
+    private func setupProcessingOverlay() {
+        processingOverlay.isHidden = true
+        processingOverlay.alpha = 0
+        processingOverlay.backgroundColor = UIColor.black.withAlphaComponent(0.72)
+        processingOverlay.isUserInteractionEnabled = true
+        processingOverlay.accessibilityViewIsModal = true
+        view.addSubview(processingOverlay)
+        processingOverlay.snp.makeConstraints { make in
+            make.edges.equalToSuperview()
+        }
+
+        processingIndicator.color = .white
+        processingIndicator.hidesWhenStopped = false
+
+        processingLabel.text = "录屏已结束\n正在处理并保存，请稍候…"
+        processingLabel.textColor = .white
+        processingLabel.font = .systemFont(ofSize: 17, weight: .semibold)
+        processingLabel.textAlignment = .center
+        processingLabel.numberOfLines = 0
+
+        let stack = UIStackView(arrangedSubviews: [processingIndicator, processingLabel])
+        stack.axis = .vertical
+        stack.alignment = .center
+        stack.spacing = 18
+        processingOverlay.addSubview(stack)
+        stack.snp.makeConstraints { make in
+            make.center.equalToSuperview()
+            make.leading.trailing.lessThanOrEqualToSuperview().inset(32)
+        }
+    }
+
+    private func showProcessingOverlay(message: String = "录屏已结束\n正在处理并保存，请稍候…") {
+        processingLabel.text = message
+        processingOverlay.isHidden = false
+        view.bringSubviewToFront(processingOverlay)
+        processingIndicator.startAnimating()
+        UIView.animate(withDuration: 0.2,
+                       delay: 0,
+                       options: [.beginFromCurrentState, .allowUserInteraction]) {
+            self.processingOverlay.alpha = 1
+        }
+    }
+
+    private func hideProcessingOverlay() {
+        processingIndicator.stopAnimating()
+        processingOverlay.alpha = 0
+        processingOverlay.isHidden = true
     }
 
     private func setupGradientBackground() {
@@ -436,6 +556,7 @@ final class ScreenRecordingViewController: UIViewController {
 
     /// 保持系统 PiP 源视图可用但不展示给用户。
     private func showInlineFrontCameraPreview(animated: Bool) {
+        pictureInPictureSourceView.layer.removeAllAnimations()
         pictureInPictureSourceView.isHidden = false
         let updates = {
             self.pictureInPictureSourceView.alpha = Constants.hiddenPictureInPictureSourceAlpha
@@ -467,6 +588,21 @@ final class ScreenRecordingViewController: UIViewController {
         } else {
             updates()
             completion(true)
+        }
+    }
+
+    /// 全屏/还原按钮停止 PiP 后，延迟重新拉起浮窗，避开系统退出动画的竞争。
+    private func restartPictureInPictureAfterRestore() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
+            guard let self,
+                  self.isFrontCameraEnabled,
+                  !self.isFrontCameraPaused,
+                  !self.isHandlingPiPRestore,
+                  let controller = self.pictureInPictureController,
+                  !controller.isPictureInPictureActive else { return }
+            self.refreshFrontCameraPictureInPictureState()
+            self.startCameraPictureInPictureIfPossible()
+            self.retryStartCameraPictureInPictureIfNeeded()
         }
     }
 
@@ -542,7 +678,8 @@ final class ScreenRecordingViewController: UIViewController {
 
     /// 统一关闭前摄 PiP 浮窗，供返回、录屏结束和手动关闭复用。
     private func closeFrontCameraPictureInPicture(reason: String, shouldUpdateStatus: Bool) {
-        let isPictureInPictureActive = pictureInPictureController?.isPictureInPictureActive ?? false
+        let controller = pictureInPictureController
+        let isPictureInPictureActive = controller?.isPictureInPictureActive ?? false
         guard isFrontCameraEnabled || isPictureInPictureActive else {
             screenRecordingLogger.info("跳过关闭前摄浮窗：未开启 reason=\(reason, privacy: .public)")
             return
@@ -550,7 +687,14 @@ final class ScreenRecordingViewController: UIViewController {
         screenRecordingLogger.info("关闭前摄浮窗 reason=\(reason, privacy: .public) active=\(logFlag(isPictureInPictureActive), privacy: .public)")
         finishPictureInPictureRestoreFlow()
         stopFrontCameraSessionAndUpdateState(shouldUpdateStatus: shouldUpdateStatus)
-        pictureInPictureController?.stopPictureInPicture()
+        guard let controller else { return }
+        if reason == "用户关闭前摄" {
+            shouldIgnoreNextPictureInPictureStop = true
+            controller.stopPictureInPicture()
+        } else {
+            ScreenRecordingPiPCleanupCoordinator.shared.takeOverAndStop(controller)
+            pictureInPictureController = nil
+        }
     }
 
     /// 统一关闭前摄、清理音频会话并刷新状态。
@@ -612,7 +756,7 @@ final class ScreenRecordingViewController: UIViewController {
         recordButton.accessibilityLabel = isRecording ? "结束录制" : "开始屏幕录制"
         systemBroadcastPicker.accessibilityLabel = isRecording ? "打开停止直播面板" : "打开系统直播屏幕面板"
         configureSystemBroadcastPickerAppearance()
-        cameraToggleButton.isEnabled = !isRecording || isFrontCameraEnabled
+        cameraToggleButton.isEnabled = true
         closeButton.alpha = isRecording ? 0.42 : 1
         UIView.animate(withDuration: 0.22, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction]) {
             self.durationLabel.alpha = isRecording ? 1 : 0
@@ -801,6 +945,7 @@ final class ScreenRecordingViewController: UIViewController {
                 }
                 self.hasObservedActiveScreenRecording = true
             } else {
+                self.showProcessingOverlay(message: "录屏已结束\n正在处理并保存，请稍候…")
                 self.scheduleScreenRecordingEndConfirmationIfNeeded(wasRecording: wasRecording,
                                                                     isScreenCaptured: isScreenCaptured,
                                                                     reason: "系统录屏结束")
@@ -839,40 +984,40 @@ final class ScreenRecordingViewController: UIViewController {
             refreshFrontCameraPictureInPictureState()
             return
         }
-        guard UIApplication.shared.applicationState == .active else {
-            screenRecordingLogger.info("暂缓确认录屏结束：App 尚未回到活跃态 reason=\(reason, privacy: .public) appState=\(self.applicationStateDescription, privacy: .public)")
-            return
-        }
+        finalizeScreenRecordingUI(reason: reason)
+        showProcessingOverlay(message: "录屏已结束\n正在处理并保存，请稍候…")
         checkForFinishedScreenRecording(endReason: reason)
     }
 
     /// 取消误触发的结束处理，恢复为正在录屏状态。
     private func cancelScreenRecordingEndHandlingAfterResume() {
         isCheckingFinishedScreenRecording = false
+        hideProcessingOverlay()
         hasObservedActiveScreenRecording = true
         updateRecordingState()
         refreshFrontCameraPictureInPictureState()
         statusLabel.text = frontCameraStatusText()
     }
 
-    /// 已确认录屏真正结束后，统一停止计时并关闭前摄 PiP。
-    private func finalizeConfirmedScreenRecordingEnd(reason: String) {
+    /// 已确认录屏真正结束后，立即停止页面录制状态并关闭前摄 PiP。
+    private func finalizeScreenRecordingUI(reason: String) {
         hasObservedActiveScreenRecording = false
         recordingStartDate = nil
         stopDurationTimer()
         closeFrontCameraPictureInPicture(reason: reason, shouldUpdateStatus: false)
+        updateRecordingState()
     }
 
     // MARK: - Actions
 
-    /// 点击返回按钮时先关闭前摄 PiP，再按当前录屏状态决定是否返回。
+    /// 录屏中点击返回仅提示用户，保持当前页面和前摄 PiP；未录制时正常返回。
     @objc private func closeTapped() {
-        closeFrontCameraPictureInPicture(reason: "返回按钮点击", shouldUpdateStatus: isSystemRecordingActive)
         if isSystemRecordingActive {
-            showAlert("正在录屏", "请先通过系统录屏面板结束录制后再返回首页。")
-        } else {
-            navigationController?.popViewController(animated: true)
+            showToast("正在录屏，请先通过系统录屏面板结束录制")
+            return
         }
+        closeFrontCameraPictureInPicture(reason: "返回按钮点击", shouldUpdateStatus: false)
+        navigationController?.popViewController(animated: true)
     }
 
     private func checkForFinishedScreenRecording(retryCount: Int = 0, endReason: String = "系统录屏结束") {
@@ -888,21 +1033,21 @@ final class ScreenRecordingViewController: UIViewController {
                 self.cancelScreenRecordingEndHandlingAfterResume()
                 return
             }
-            self.statusLabel.text = retryCount == 0 ? "录屏已结束，正在保存到首页…" : "正在读取录屏文件…"
+            self.showProcessingOverlay(message: retryCount == 0 ? "录屏已结束\n正在处理并保存，请稍候…" : "正在读取录屏文件\n请勿退出应用…")
             self.loadLatestScreenRecordingCandidate { candidate in
                 guard !UIScreen.main.isCaptured else {
+                    self.hideProcessingOverlay()
                     self.cancelScreenRecordingEndHandlingAfterResume()
                     return
                 }
                 if let candidate {
-                    self.finalizeConfirmedScreenRecordingEnd(reason: endReason)
                     self.saveScreenRecordingDraft(candidate)
                 } else if retryCount < Constants.screenRecordingImportRetryLimit {
                     self.checkForFinishedScreenRecording(retryCount: retryCount + 1, endReason: endReason)
                 } else {
                     self.isCheckingFinishedScreenRecording = false
-                    self.statusLabel.text = "未确认录屏已停止，请在系统弹窗点停止后稍等"
-                    self.refreshFrontCameraPictureInPictureState()
+                    self.hideProcessingOverlay()
+                    self.statusLabel.text = "未读取到录屏文件，请在相册中确认保存结果"
                 }
             }
         }
@@ -946,6 +1091,7 @@ final class ScreenRecordingViewController: UIViewController {
             processedScreenRecordingAssetIdentifiers.remove(candidate.assetIdentifier)
             savingAssetIdentifier = nil
             isCheckingFinishedScreenRecording = false
+            hideProcessingOverlay()
             showAlert("保存草稿失败", error.localizedDescription)
         }
     }
@@ -1121,27 +1267,25 @@ extension ScreenRecordingViewController: AVPictureInPictureControllerDelegate {
                                     restoreUserInterfaceForPictureInPictureStopWithCompletionHandler completionHandler: @escaping (Bool) -> Void) {
         logPictureInPictureState("PiP请求恢复界面")
         beginPictureInPictureRestoreFlow()
-        completionHandler(false)
+        showInlineFrontCameraPreview(animated: false)
+        completionHandler(true)
         statusLabel.text = frontCameraStatusText()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-            guard let self, self.isHandlingPiPRestore else { return }
-            if pictureInPictureController.isPictureInPictureActive {
-                self.isFrontCameraRestoredInline = false
-            } else {
-                self.showInlineFrontCameraPreview(animated: true)
-            }
-            self.finishPictureInPictureRestoreFlow()
-        }
     }
 
     func pictureInPictureControllerDidStopPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
         logPictureInPictureState("PiP已停止")
         guard !isHandlingPiPRestore else {
-            isFrontCameraRestoredInline = true
-            showInlineFrontCameraPreview(animated: true)
+            isFrontCameraRestoredInline = false
+            showInlineFrontCameraPreview(animated: false)
             refreshFrontCameraPictureInPictureState()
             statusLabel.text = frontCameraStatusText()
             finishPictureInPictureRestoreFlow()
+            restartPictureInPictureAfterRestore()
+            return
+        }
+        if shouldIgnoreNextPictureInPictureStop {
+            shouldIgnoreNextPictureInPictureStop = false
+            deactivatePictureInPictureAudioSession()
             return
         }
         guard isFrontCameraEnabled else {
