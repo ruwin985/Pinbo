@@ -23,11 +23,9 @@
 		2D8979275194F412B35030A9 /* PiPPreviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4463D2F78D90BF7971D78410 /* PiPPreviewView.swift */; };
 		30526B14E269C670A28B8A94 /* MacRecordingViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53A9820CE33297714FC27025 /* MacRecordingViewController.swift */; };
 		343870793C0E70E4E359A45F /* CaptureSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5373A4081352930DC0EEEB1B /* CaptureSettings.swift */; };
-			362744387795CEDC54BC8B1C /* MacDraftGridItemView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32BCFA7534B004A07626A2AC /* MacDraftGridItemView.swift */; };
-			378868A2BDE561DE5F7EE7F7 /* AspectSettingsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6497B3D2C08AD5D8FF66D8B0 /* AspectSettingsViewController.swift */; };
-			B8D4A1F3E7C94B03A6D5F810 /* CaptureParameterSettingsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8D4A1F2E7C94B03A6D5F810 /* CaptureParameterSettingsViewController.swift */; };
-			C43F2AF1B6654D36ACBED071 /* SheetCardDragCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C43F2AF0B6654D36ACBED071 /* SheetCardDragCoordinator.swift */; };
-			39735E7B0B6A50D5A12B9A93 /* DraftStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69FE01FCD7DD301F08C255FD /* DraftStore.swift */; };
+		362744387795CEDC54BC8B1C /* MacDraftGridItemView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32BCFA7534B004A07626A2AC /* MacDraftGridItemView.swift */; };
+		378868A2BDE561DE5F7EE7F7 /* AspectSettingsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6497B3D2C08AD5D8FF66D8B0 /* AspectSettingsViewController.swift */; };
+		39735E7B0B6A50D5A12B9A93 /* DraftStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69FE01FCD7DD301F08C255FD /* DraftStore.swift */; };
 		404B4DD6ED935CC9054F9C60 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 33C03C961FB093044A6C98D2 /* Assets.xcassets */; };
 		46063507CB41C94B87A056BE /* CaptureSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = D56F7585E66471B8DED19FF4 /* CaptureSource.swift */; };
 		471A8734C571FAC831C383DF /* PiPVideoCompositor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 688E3FD89205765998BD663C /* PiPVideoCompositor.swift */; };
@@ -56,8 +54,11 @@
 		A8F90AA6673589A7604B4E17 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 5218AD88A6BE5B005AE0965E /* Assets.xcassets */; };
 		AFA715C6E6FA9AC35108199F /* HomeViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7506DE4AFCDC89864BF894A /* HomeViewController.swift */; };
 		B22F302B89850B8D4D137C9E /* LiveSpeechRecognizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FDA505D2D21A4B0479AB330 /* LiveSpeechRecognizer.swift */; };
+		B8D4A1F3E7C94B03A6D5F810 /* CaptureParameterSettingsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8D4A1F2E7C94B03A6D5F810 /* CaptureParameterSettingsViewController.swift */; };
 		BFD0D291704F3A188C0B67ED /* MacPermissionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C6C71E90CE62E69F40FFB00 /* MacPermissionManager.swift */; };
+		C0DE26082600000200000002 /* AppStorageCleaner.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE26082600000100000001 /* AppStorageCleaner.swift */; };
 		C3B8DCF2F76BF9358DA72D4A /* MacHomeViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB6CCB08381AE825D3AEB346 /* MacHomeViewController.swift */; };
+		C43F2AF1B6654D36ACBED071 /* SheetCardDragCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C43F2AF0B6654D36ACBED071 /* SheetCardDragCoordinator.swift */; };
 		D1B8FCFB3BBB93DFB1B10C63 /* PhotoLibrarySaver.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6A9156AF436B03449E75641 /* PhotoLibrarySaver.swift */; };
 		DB71820880B397903BAD5CDB /* PiPVideoCompositor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 688E3FD89205765998BD663C /* PiPVideoCompositor.swift */; };
 		E53B253AC2F3450931B5C3FE /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5575C1731FC97EE00592DA3F /* AppDelegate.swift */; };
@@ -111,12 +112,10 @@
 		5218AD88A6BE5B005AE0965E /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		5373A4081352930DC0EEEB1B /* CaptureSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureSettings.swift; sourceTree = "<group>"; };
 		53A9820CE33297714FC27025 /* MacRecordingViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacRecordingViewController.swift; sourceTree = "<group>"; };
-			5575C1731FC97EE00592DA3F /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
-			62EAE7E4F985959F46148B1C /* ScreenRecordingViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenRecordingViewController.swift; sourceTree = "<group>"; };
-			6497B3D2C08AD5D8FF66D8B0 /* AspectSettingsViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AspectSettingsViewController.swift; sourceTree = "<group>"; };
-			B8D4A1F2E7C94B03A6D5F810 /* CaptureParameterSettingsViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureParameterSettingsViewController.swift; sourceTree = "<group>"; };
-			C43F2AF0B6654D36ACBED071 /* SheetCardDragCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SheetCardDragCoordinator.swift; sourceTree = "<group>"; };
-			688E3FD89205765998BD663C /* PiPVideoCompositor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PiPVideoCompositor.swift; sourceTree = "<group>"; };
+		5575C1731FC97EE00592DA3F /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		62EAE7E4F985959F46148B1C /* ScreenRecordingViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenRecordingViewController.swift; sourceTree = "<group>"; };
+		6497B3D2C08AD5D8FF66D8B0 /* AspectSettingsViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AspectSettingsViewController.swift; sourceTree = "<group>"; };
+		688E3FD89205765998BD663C /* PiPVideoCompositor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PiPVideoCompositor.swift; sourceTree = "<group>"; };
 		69FE01FCD7DD301F08C255FD /* DraftStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DraftStore.swift; sourceTree = "<group>"; };
 		6A144BFAC76AE722E5A5679B /* DraggablePiPView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DraggablePiPView.swift; sourceTree = "<group>"; };
 		743B714BC83ED6458D5E3970 /* HomeWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeWindowController.swift; sourceTree = "<group>"; };
@@ -129,19 +128,22 @@
 		9F6A393549717AC9447F5A18 /* RecordingViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingViewController.swift; sourceTree = "<group>"; };
 		A4DB8F61E99C81121F1E9571 /* SampleBufferMovieWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SampleBufferMovieWriter.swift; sourceTree = "<group>"; };
 		A6080E51086B0A4D0791C0D0 /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
-		B2EEB6C1D3E1BC0E3927B0C4 /* PinboMac.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PinboMac.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		B2EEB6C1D3E1BC0E3927B0C4 /* PinboMac.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; name = PinboMac.app; path = Pinbo.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B6A9156AF436B03449E75641 /* PhotoLibrarySaver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoLibrarySaver.swift; sourceTree = "<group>"; };
 		B7506DE4AFCDC89864BF894A /* HomeViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeViewController.swift; sourceTree = "<group>"; };
-		B8CBB88D87FBFC22462B5A9F /* PinboScreenBroadcastExtension.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = PinboScreenBroadcastExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		B8CBB88D87FBFC22462B5A9F /* PinboScreenBroadcastExtension.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.extensionkit-extension"; name = PinboScreenBroadcastExtension.appex; path = "Screen Recorder.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
+		B8D4A1F2E7C94B03A6D5F810 /* CaptureParameterSettingsViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureParameterSettingsViewController.swift; sourceTree = "<group>"; };
 		B9A55C5F266E71BD6EF8FC82 /* SourcePickerViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourcePickerViewController.swift; sourceTree = "<group>"; };
 		BB3DB4A83CA25197BCC8821C /* CameraSmokeTestRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraSmokeTestRunner.swift; sourceTree = "<group>"; };
 		BC2D345B4EBEDA79A225B41D /* TimelineView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineView.swift; sourceTree = "<group>"; };
+		C0DE26082600000100000001 /* AppStorageCleaner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppStorageCleaner.swift; sourceTree = "<group>"; };
+		C43F2AF0B6654D36ACBED071 /* SheetCardDragCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SheetCardDragCoordinator.swift; sourceTree = "<group>"; };
 		C5EA023358DDCDDE1DDDB007 /* AVCapturePreviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AVCapturePreviewView.swift; sourceTree = "<group>"; };
 		C851115FE9FA42E26FE76C62 /* SheetCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SheetCard.swift; sourceTree = "<group>"; };
 		C9D77C2E4C36ED2EB8DC6BE7 /* ScreenCaptureTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenCaptureTarget.swift; sourceTree = "<group>"; };
 		D56F7585E66471B8DED19FF4 /* CaptureSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureSource.swift; sourceTree = "<group>"; };
 		DBCE30DF3053506888EC11B4 /* EditorViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorViewController.swift; sourceTree = "<group>"; };
-		DDB54FC11F3F9C845EA38703 /* Pinbo.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Pinbo.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		DDB54FC11F3F9C845EA38703 /* Pinbo.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Pinbo.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		DEAECB17B03995E886653314 /* LaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = LaunchScreen.storyboard; sourceTree = "<group>"; };
 		E0104C96D0BD960844FF2C9B /* Project.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Project.swift; sourceTree = "<group>"; };
 		E150CC047C4F5DBF7ADBCB95 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
@@ -318,6 +320,7 @@
 		B0DFEA6DD834FAC98DE1D176 /* Home */ = {
 			isa = PBXGroup;
 			children = (
+				C0DE26082600000100000001 /* AppStorageCleaner.swift */,
 				1601DC88FE110A3AB7249995 /* DraftCell.swift */,
 				B7506DE4AFCDC89864BF894A /* HomeViewController.swift */,
 			);
@@ -541,6 +544,7 @@
 				378868A2BDE561DE5F7EE7F7 /* AspectSettingsViewController.swift in Sources */,
 				B8D4A1F3E7C94B03A6D5F810 /* CaptureParameterSettingsViewController.swift in Sources */,
 				09FE3B719A51D982925C8D09 /* CameraSmokeTestRunner.swift in Sources */,
+				C0DE26082600000200000002 /* AppStorageCleaner.swift in Sources */,
 				13BB4BF9D0D6CB6FC51FFBC3 /* CaptureSettings.swift in Sources */,
 				0490FEFA2A983BC030B9FCFE /* CaptureSource.swift in Sources */,
 				0FF083B0DE808FDC8295535B /* DraftCell.swift in Sources */,
@@ -644,10 +648,12 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = "iOS-App/Pinbo.entitlements";
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				ENABLE_BITCODE = NO;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = "iOS-App/Info.plist";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
 				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -723,10 +729,12 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = "iOS-App/Pinbo.entitlements";
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				ENABLE_BITCODE = NO;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = "iOS-App/Info.plist";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
 				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",

@@ -150,6 +150,72 @@
           <span>版本 1.0.0 · Universal</span>
         </div>
       </section>
+
+      <section
+        class="section engagement-section"
+        id="community"
+        aria-labelledby="community-title"
+        data-engagement-root
+        data-engagement-api="api/engagement"
+        data-like-api="api/likes"
+        data-comment-api="api/comments"
+        data-stream-api="api/engagement/stream"
+      >
+        <div class="section-heading engagement-heading">
+          <p class="eyebrow">Community</p>
+          <h2 id="community-title">想体验手机版 Pinbo，留下你的设备信息。</h2>
+          <p>点赞和评论会实时同步。如果你想优先体验 iPhone 版 Pinbo，请填写设备 UDID 和邮箱，页面列表只展示脱敏后的联系信息。</p>
+        </div>
+
+        <div class="engagement-grid">
+          <aside class="like-panel" aria-live="polite">
+            <p class="eyebrow">Like</p>
+            <h3>支持这个产品</h3>
+            <button class="like-button" type="button" data-like-button>
+              <span class="like-button-icon" aria-hidden="true">♥</span>
+              <span data-like-label>点赞</span>
+            </button>
+            <p class="like-count"><strong data-like-count>0</strong><span>人期待手机版上线</span></p>
+            <p class="engagement-status" data-engagement-status>正在加载最新互动数据...</p>
+          </aside>
+
+          <div class="comments-panel" aria-labelledby="comments-title">
+            <div class="comments-header">
+              <div>
+                <p class="eyebrow">Experience</p>
+                <h3 id="comments-title">体验申请与评论</h3>
+              </div>
+              <p data-comment-count>0 条留言</p>
+            </div>
+
+            <form class="comment-form" data-comment-form>
+              <div class="comment-field-grid">
+                <label>
+                  <span>昵称</span>
+                  <input name="author" type="text" maxlength="32" placeholder="访客" autocomplete="name">
+                </label>
+                <label>
+                  <span>邮箱</span>
+                  <input name="email" type="email" maxlength="120" placeholder="name@example.com" autocomplete="email" required>
+                </label>
+                <label>
+                  <span>设备 UDID</span>
+                  <input name="udid" type="text" maxlength="100" placeholder="粘贴 iPhone 设备 UDID" autocomplete="off" autocapitalize="characters" required>
+                </label>
+              </div>
+              <label class="comment-content-field">
+                <span>留言</span>
+                <textarea name="content" maxlength="500" rows="4" placeholder="可以写下设备型号、创作场景或你最想体验的功能"></textarea>
+              </label>
+              <button class="button primary" type="submit" data-comment-submit>提交体验申请</button>
+            </form>
+
+            <div class="comment-list" data-comment-list aria-live="polite">
+              <p class="comment-empty">正在加载留言...</p>
+            </div>
+          </div>
+        </div>
+      </section>
     </main>
 
     <footer class="site-footer">
@@ -162,5 +228,6 @@
       <p>页面更新时间：2026-08-20</p>
     </footer>
   </div>
+  <script defer src="assets/engagement.js"></script>
 </body>
 </html>

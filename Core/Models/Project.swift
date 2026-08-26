@@ -91,6 +91,8 @@ public struct RecordingProject: Codable, Equatable {
     public var sourceKind: RecordingSourceKind
     /// 手机摄像头默认比例下，小窗关键帧归一化时使用的录制页视口尺寸。
     public var captureViewportSize: CGSize?
+    /// 原始媒体资源标识，用于避免系统录屏结束回调重复导入同一条相册视频。
+    public var sourceAssetIdentifier: String?
 
     public init(
         id: UUID = UUID(),
@@ -105,7 +107,8 @@ public struct RecordingProject: Codable, Equatable {
         isDraft: Bool = false,
         aspect: AspectSettings = AspectSettings(),
         sourceKind: RecordingSourceKind = .screen,
-        captureViewportSize: CGSize? = nil
+        captureViewportSize: CGSize? = nil,
+        sourceAssetIdentifier: String? = nil
     ) {
         self.id = id
         self.createdAt = createdAt
@@ -120,6 +123,7 @@ public struct RecordingProject: Codable, Equatable {
         self.aspect = aspect
         self.sourceKind = sourceKind
         self.captureViewportSize = captureViewportSize
+        self.sourceAssetIdentifier = sourceAssetIdentifier
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -136,6 +140,7 @@ public struct RecordingProject: Codable, Equatable {
         case aspect
         case sourceKind
         case captureViewportSize
+        case sourceAssetIdentifier
     }
 
     public init(from decoder: Decoder) throws {
@@ -160,6 +165,7 @@ public struct RecordingProject: Codable, Equatable {
                                     pipTrack: decodedPipTrack,
                                     splitScreenTrack: decodedSplitScreenTrack)
         captureViewportSize = try container.decodeIfPresent(CGSize.self, forKey: .captureViewportSize)
+        sourceAssetIdentifier = try container.decodeIfPresent(String.self, forKey: .sourceAssetIdentifier)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -177,6 +183,7 @@ public struct RecordingProject: Codable, Equatable {
         try container.encode(aspect, forKey: .aspect)
         try container.encode(sourceKind, forKey: .sourceKind)
         try container.encodeIfPresent(captureViewportSize, forKey: .captureViewportSize)
+        try container.encodeIfPresent(sourceAssetIdentifier, forKey: .sourceAssetIdentifier)
     }
 
     private static func inferSourceKind(aspect: AspectSettings,

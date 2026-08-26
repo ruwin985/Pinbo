@@ -4,6 +4,16 @@ import AVKit
 import Photos
 import ReplayKit
 import SnapKit
+import OSLog
+
+/// 手机录制页统一诊断日志，用于真机 Console 排查前摄浮窗后台暂停问题。
+private let screenRecordingLogger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.pinbo.app",
+                                           category: "ScreenRecording")
+
+/// 将布尔值转换为 Console 中可直接查看的公开文本。
+private func logFlag(_ value: Bool) -> String {
+    value ? "true" : "false"
+}
 
 /// 手机端屏幕录制页：用户手动开启前摄悬浮窗，点击中间按钮开始/结束系统录屏。
 final class ScreenRecordingViewController: UIViewController {
@@ -11,6 +21,12 @@ final class ScreenRecordingViewController: UIViewController {
         static let broadcastExtensionBundleIdentifier = "com.pinbo.app.ScreenBroadcastExtension"
         static let recordingImportDirectoryName = "ScreenRecordingImports"
         static let recordingFilePrefix = "Pinbo-ScreenRecording-"
+        /// 等待系统停止确认弹窗和相册产物稳定的最大重试次数。
+        static let screenRecordingImportRetryLimit = 20
+        /// 保持前摄竖屏比例，避免系统浮窗按正方形比例渲染出黑边。
+        static let pictureInPictureSourceSize = CGSize(width: 136, height: 190)
+        /// 让 PiP 源视图留在可用视图树中，但视觉上不出现页面内占位。
+        static let hiddenPictureInPictureSourceAlpha: CGFloat = 0.01
     }
 
     private let previewBackdrop = UIVisualEffectView(effect: UIBlurEffect(style: .systemUltraThinMaterialDark))
@@ -23,26 +39,34 @@ final class ScreenRecordingViewController: UIViewController {
     private let durationLabel = UILabel()
     private let cameraContainer = UIView()
     private let pictureInPictureSourceView = UIView()
+    /// 供系统 PiP 镜像的样本缓冲显示层。
+    private let pictureInPictureSampleBufferDisplayLayer = AVSampleBufferDisplayLayer()
 
     private let frontCameraSession = FrontCameraSessionController()
     private var pictureInPictureController: AVPictureInPictureController?
-    private var pictureInPictureContentViewController: AnyObject?
-    private var pictureInPictureCameraViewController: AnyObject?
     private var recordingStartDate: Date?
     private var durationTimer: Timer?
     private var isFrontCameraEnabled = false
+    /// 记录前摄悬浮窗是否暂停，避免前后台切换时被自动恢复。
+    private var isFrontCameraPaused = false
+    /// 记录本页是否已经观察到系统录屏真正开始，避免点红色胶囊弹确认框时误判结束。
+    private var hasObservedActiveScreenRecording = false
+    /// 延迟确认系统录屏结束的任务，避免系统停止弹窗出现时立即误结束。
+    private var pendingScreenRecordingEndWorkItem: DispatchWorkItem?
     private var isSystemRecordingActive = false
     private var hasRequestedPhotoPermission = false
     private var screenRecordingLookupStartDate: Date?
     private var savingAssetIdentifier: String?
+    /// 已经处理过的系统录屏相册资源，防止重复通知重复保存同一条视频。
+    private var processedScreenRecordingAssetIdentifiers: Set<String> = []
+    /// 标记当前处于系统 PiP 还原按钮流程，避免误把它当作用户关闭浮窗。
     private var isHandlingPiPRestore = false
+    /// 标记前摄当前恢复在页面内预览，避免前台自动再次拉起系统 PiP。
+    private var isFrontCameraRestoredInline = false
     private var isCheckingFinishedScreenRecording = false
-    private var hasActiveScreenRecordingState: Bool {
-        isSystemRecordingActive || recordingStartDate != nil || durationTimer != nil
-    }
-
     override func viewDidLoad() {
         super.viewDidLoad()
+        screenRecordingLogger.info("录制页加载 captured=\(logFlag(UIScreen.main.isCaptured), privacy: .public) PiPSupported=\(logFlag(AVPictureInPictureController.isPictureInPictureSupported()), privacy: .public)")
         view.backgroundColor = AppTheme.primary
         navigationController?.setNavigationBarHidden(true, animated: false)
         setupUI()
@@ -50,6 +74,10 @@ final class ScreenRecordingViewController: UIViewController {
         NotificationCenter.default.addObserver(self,
                                                selector: #selector(appWillResignActive),
                                                name: UIApplication.willResignActiveNotification,
+                                               object: nil)
+        NotificationCenter.default.addObserver(self,
+                                               selector: #selector(appDidEnterBackground),
+                                               name: UIApplication.didEnterBackgroundNotification,
                                                object: nil)
         NotificationCenter.default.addObserver(self,
                                                selector: #selector(appDidBecomeActive),
@@ -66,32 +94,56 @@ final class ScreenRecordingViewController: UIViewController {
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         configureSystemBroadcastPickerAppearance()
+        pictureInPictureSampleBufferDisplayLayer.frame = pictureInPictureSourceView.bounds
     }
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         requestPhotoPermissionIfNeeded()
+        prepareFrontCameraSessionIfAuthorized()
     }
 
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
         if isMovingFromParent || isBeingDismissed {
+            screenRecordingLogger.info("录制页退出，停止前摄和 PiP")
             stopDurationTimer()
-            isFrontCameraEnabled = false
-            setPictureInPictureAutoStartEnabled(false)
-            pictureInPictureController?.stopPictureInPicture()
-            frontCameraSession.stopRunning()
-            deactivatePictureInPictureAudioSession()
+            cancelPendingScreenRecordingEndConfirmation()
+            closeFrontCameraPictureInPicture(reason: "录制页退出", shouldUpdateStatus: false)
         }
     }
 
     deinit {
         NotificationCenter.default.removeObserver(self)
+        cancelPendingScreenRecordingEndConfirmation()
         stopDurationTimer()
     }
 
     override var prefersStatusBarHidden: Bool { false }
     override var preferredStatusBarStyle: UIStatusBarStyle { .lightContent }
+
+    /// 当前 App 生命周期状态文本，便于对齐切后台时机。
+    private var applicationStateDescription: String {
+        switch UIApplication.shared.applicationState {
+        case .active:
+            return "active"
+        case .inactive:
+            return "inactive"
+        case .background:
+            return "background"
+        @unknown default:
+            return "unknown"
+        }
+    }
+
+    /// 输出前摄 PiP 控制器当前状态。
+    private func logPictureInPictureState(_ event: String) {
+        guard let controller = pictureInPictureController else {
+            screenRecordingLogger.info("\(event, privacy: .public) PiPController=nil appState=\(self.applicationStateDescription, privacy: .public) frontEnabled=\(logFlag(self.isFrontCameraEnabled), privacy: .public)")
+            return
+        }
+        screenRecordingLogger.info("\(event, privacy: .public) possible=\(logFlag(controller.isPictureInPicturePossible), privacy: .public) active=\(logFlag(controller.isPictureInPictureActive), privacy: .public) auto=\(logFlag(controller.canStartPictureInPictureAutomaticallyFromInline), privacy: .public) appState=\(self.applicationStateDescription, privacy: .public) frontEnabled=\(logFlag(self.isFrontCameraEnabled), privacy: .public)")
+    }
 
     // MARK: - UI
 
@@ -244,16 +296,34 @@ final class ScreenRecordingViewController: UIViewController {
         }
     }
 
+    /// 配置系统 PiP 使用的不可见源视图，避免页面内出现黑色占位。
     private func setupPictureInPictureSourceView() {
         pictureInPictureSourceView.backgroundColor = .clear
-        pictureInPictureSourceView.alpha = 0.01
+        pictureInPictureSourceView.alpha = Constants.hiddenPictureInPictureSourceAlpha
+        pictureInPictureSourceView.isHidden = false
+        pictureInPictureSourceView.clipsToBounds = true
+        pictureInPictureSourceView.layer.cornerRadius = 0
+        pictureInPictureSourceView.layer.borderWidth = 0
         pictureInPictureSourceView.isUserInteractionEnabled = false
         view.addSubview(pictureInPictureSourceView)
         pictureInPictureSourceView.snp.makeConstraints { make in
-            make.width.height.equalTo(2)
-            make.trailing.equalToSuperview().inset(2)
-            make.bottom.equalTo(view.safeAreaLayoutGuide).inset(2)
+            make.width.equalTo(Constants.pictureInPictureSourceSize.width)
+            make.height.equalTo(Constants.pictureInPictureSourceSize.height)
+            make.trailing.equalToSuperview().inset(18)
+            make.bottom.equalTo(view.safeAreaLayoutGuide).inset(96)
         }
+        pictureInPictureSampleBufferDisplayLayer.videoGravity = .resizeAspectFill
+        pictureInPictureSampleBufferDisplayLayer.backgroundColor = UIColor.clear.cgColor
+        var sampleBufferTimebase: CMTimebase?
+        if CMTimebaseCreateWithSourceClock(allocator: kCFAllocatorDefault,
+                                           sourceClock: CMClockGetHostTimeClock(),
+                                           timebaseOut: &sampleBufferTimebase) == noErr,
+           let sampleBufferTimebase {
+            CMTimebaseSetRate(sampleBufferTimebase, rate: 1.0)
+            pictureInPictureSampleBufferDisplayLayer.controlTimebase = sampleBufferTimebase
+        }
+        pictureInPictureSampleBufferDisplayLayer.frame = pictureInPictureSourceView.bounds
+        pictureInPictureSourceView.layer.addSublayer(pictureInPictureSampleBufferDisplayLayer)
     }
 
     // MARK: - Recorder
@@ -294,59 +364,141 @@ final class ScreenRecordingViewController: UIViewController {
     }
 
     private func configureCameraPictureInPictureIfAvailable() {
-        guard #available(iOS 15.0, *) else { return }
-        guard AVPictureInPictureController.isPictureInPictureSupported() else { return }
-        let contentViewController = AVPictureInPictureVideoCallViewController()
-        contentViewController.preferredContentSize = CGSize(width: 136, height: 190)
-        contentViewController.view.backgroundColor = .black
-        contentViewController.view.isUserInteractionEnabled = true
-
-        let cameraViewController = PiPCameraViewController(cameraSession: frontCameraSession)
-        cameraViewController.onCloseTapped = { [weak self] in
-            self?.closeFrontCameraFromPictureInPicture()
+        guard #available(iOS 15.0, *) else {
+            screenRecordingLogger.error("当前系统低于 iOS 15，不支持视频通话 PiP")
+            return
         }
-        contentViewController.addChild(cameraViewController)
-        contentViewController.view.addSubview(cameraViewController.view)
-        cameraViewController.view.snp.makeConstraints { make in
-            make.edges.equalToSuperview()
+        guard AVPictureInPictureController.isPictureInPictureSupported() else {
+            screenRecordingLogger.error("当前设备不支持 PiP")
+            return
         }
-        cameraViewController.didMove(toParent: contentViewController)
+        frontCameraSession.setSampleBufferDisplayLayer(pictureInPictureSampleBufferDisplayLayer)
+        frontCameraSession.onFirstSampleBufferDisplayed = { [weak self] in
+            guard let self, self.isFrontCameraEnabled, !self.isFrontCameraPaused else { return }
+            self.startCameraPictureInPictureIfPossible()
+        }
 
-        let source = AVPictureInPictureController.ContentSource(activeVideoCallSourceView: pictureInPictureSourceView,
-                                                               contentViewController: contentViewController)
+        let source = AVPictureInPictureController.ContentSource(sampleBufferDisplayLayer: pictureInPictureSampleBufferDisplayLayer,
+                                                                playbackDelegate: self)
         let controller = AVPictureInPictureController(contentSource: source)
         controller.delegate = self
         controller.canStartPictureInPictureAutomaticallyFromInline = false
-        if #available(iOS 14.0, *) {
-            controller.requiresLinearPlayback = true
-        }
         pictureInPictureController = controller
-        pictureInPictureContentViewController = contentViewController
-        pictureInPictureCameraViewController = cameraViewController
+        logPictureInPictureState("PiP控制器配置完成")
     }
 
     private func startCameraPictureInPictureIfPossible() {
-        guard isFrontCameraEnabled else { return }
-        guard #available(iOS 15.0, *) else { return }
+        guard isFrontCameraEnabled else {
+            screenRecordingLogger.info("跳过启动 PiP：前摄未开启")
+            return
+        }
+        guard #available(iOS 15.0, *) else {
+            screenRecordingLogger.error("跳过启动 PiP：系统版本不支持")
+            return
+        }
+        refreshFrontCameraPictureInPictureState()
+        logPictureInPictureState("准备启动PiP")
+        guard frontCameraSession.hasDisplayedSampleBuffer else {
+            screenRecordingLogger.info("跳过启动 PiP：等待前摄首帧")
+            return
+        }
         guard let controller = pictureInPictureController,
               controller.isPictureInPicturePossible,
-              !controller.isPictureInPictureActive else { return }
+              !controller.isPictureInPictureActive else {
+            screenRecordingLogger.info("跳过启动 PiP：条件未满足")
+            return
+        }
+        screenRecordingLogger.info("调用 startPictureInPicture")
+        controller.startPictureInPicture()
+    }
+
+    /// 切到后台或返回前台时，重新确认前摄会话和音频会话保持在线。
+    private func refreshFrontCameraPictureInPictureState() {
+        guard isFrontCameraEnabled else {
+            screenRecordingLogger.info("跳过刷新前摄状态：前摄未开启")
+            return
+        }
+        guard !isFrontCameraPaused else {
+            screenRecordingLogger.info("跳过刷新前摄状态：当前已暂停")
+            return
+        }
+        screenRecordingLogger.info("刷新前摄后台状态 appState=\(self.applicationStateDescription, privacy: .public)")
         activatePictureInPictureAudioSession()
         frontCameraSession.startRunning()
-        controller.startPictureInPicture()
     }
 
     private func retryStartCameraPictureInPictureIfNeeded() {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
+            screenRecordingLogger.info("延迟重试启动 PiP")
             self?.startCameraPictureInPictureIfPossible()
         }
     }
 
+    /// 保持系统 PiP 源视图可用但不展示给用户。
+    private func showInlineFrontCameraPreview(animated: Bool) {
+        pictureInPictureSourceView.isHidden = false
+        let updates = {
+            self.pictureInPictureSourceView.alpha = Constants.hiddenPictureInPictureSourceAlpha
+        }
+        if animated {
+            UIView.animate(withDuration: 0.22,
+                           delay: 0,
+                           options: [.beginFromCurrentState, .allowUserInteraction],
+                           animations: updates)
+        } else {
+            updates()
+        }
+    }
+
+    /// 隐藏系统 PiP 源视图，关闭前摄时移除最后的不可见锚点。
+    private func hideInlineFrontCameraPreview(animated: Bool) {
+        let updates = {
+            self.pictureInPictureSourceView.alpha = 0
+        }
+        let completion: (Bool) -> Void = { _ in
+            self.pictureInPictureSourceView.isHidden = true
+        }
+        if animated {
+            UIView.animate(withDuration: 0.18,
+                           delay: 0,
+                           options: [.beginFromCurrentState, .allowUserInteraction],
+                           animations: updates,
+                           completion: completion)
+        } else {
+            updates()
+            completion(true)
+        }
+    }
+
+    /// 在相机已授权时提前完成会话配置，减少首次点击后的等待时间。
+    private func prepareFrontCameraSessionIfAuthorized() {
+        guard PermissionManager.cameraGranted else { return }
+        frontCameraSession.prepareIfNeeded()
+    }
+
+    /// 开始处理系统 PiP 右上角还原按钮触发的停止流程。
+    private func beginPictureInPictureRestoreFlow() {
+        isHandlingPiPRestore = true
+        isFrontCameraRestoredInline = true
+        refreshFrontCameraPictureInPictureState()
+    }
+
+    /// 结束或取消系统还原流程。
+    private func finishPictureInPictureRestoreFlow() {
+        isHandlingPiPRestore = false
+    }
+
     private func enableFrontCamera() {
-        guard !isFrontCameraEnabled else { return }
+        guard !isFrontCameraEnabled else {
+            screenRecordingLogger.info("跳过开启前摄：已经开启")
+            return
+        }
+        screenRecordingLogger.info("用户开启前摄")
         guard PermissionManager.cameraGranted else {
+            screenRecordingLogger.info("请求相机权限")
             PermissionManager.requestCamera { [weak self] granted in
                 guard granted else {
+                    screenRecordingLogger.error("相机权限被拒绝")
                     self?.showAlert("无法开启前摄", "请在系统设置中允许拍呗访问相机。")
                     return
                 }
@@ -355,31 +507,67 @@ final class ScreenRecordingViewController: UIViewController {
             return
         }
         isFrontCameraEnabled = true
+        isFrontCameraPaused = false
+        isFrontCameraRestoredInline = false
+        showInlineFrontCameraPreview(animated: true)
         setPictureInPictureAutoStartEnabled(true)
         activatePictureInPictureAudioSession()
+        frontCameraSession.resetSampleBufferDisplayState()
+        frontCameraSession.setSampleBufferDeliveryPaused(false)
         frontCameraSession.startRunning { [weak self] isStarted in
             guard let self, self.isFrontCameraEnabled else { return }
+            screenRecordingLogger.info("前摄启动回调 isStarted=\(logFlag(isStarted), privacy: .public)")
             if isStarted {
-                self.statusLabel.text = self.isSystemRecordingActive ? "系统录屏中" : "前摄浮窗已开启，可切到桌面"
+                self.statusLabel.text = self.frontCameraStatusText()
+                self.startCameraPictureInPictureIfPossible()
             } else {
                 self.statusLabel.text = "无法启动前摄，请确认设备相机可用"
             }
         }
         updateCameraState(animated: true)
-        startCameraPictureInPictureIfPossible()
         retryStartCameraPictureInPictureIfNeeded()
+        syncPictureInPicturePauseState()
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
     }
 
+    /// 用户主动关闭前摄浮窗。
     private func disableFrontCamera() {
-        guard isFrontCameraEnabled else { return }
-        isFrontCameraEnabled = false
+        guard isFrontCameraEnabled else {
+            screenRecordingLogger.info("跳过关闭前摄：已经关闭")
+            return
+        }
+        screenRecordingLogger.info("用户关闭前摄")
+        closeFrontCameraPictureInPicture(reason: "用户关闭前摄", shouldUpdateStatus: true)
+    }
+
+    /// 统一关闭前摄 PiP 浮窗，供返回、录屏结束和手动关闭复用。
+    private func closeFrontCameraPictureInPicture(reason: String, shouldUpdateStatus: Bool) {
+        let isPictureInPictureActive = pictureInPictureController?.isPictureInPictureActive ?? false
+        guard isFrontCameraEnabled || isPictureInPictureActive else {
+            screenRecordingLogger.info("跳过关闭前摄浮窗：未开启 reason=\(reason, privacy: .public)")
+            return
+        }
+        screenRecordingLogger.info("关闭前摄浮窗 reason=\(reason, privacy: .public) active=\(logFlag(isPictureInPictureActive), privacy: .public)")
+        finishPictureInPictureRestoreFlow()
+        stopFrontCameraSessionAndUpdateState(shouldUpdateStatus: shouldUpdateStatus)
         pictureInPictureController?.stopPictureInPicture()
+    }
+
+    /// 统一关闭前摄、清理音频会话并刷新状态。
+    private func stopFrontCameraSessionAndUpdateState(shouldUpdateStatus: Bool = true) {
+        isFrontCameraEnabled = false
+        isFrontCameraPaused = false
+        isFrontCameraRestoredInline = false
         setPictureInPictureAutoStartEnabled(false)
+        frontCameraSession.setSampleBufferDeliveryPaused(false)
         frontCameraSession.stopRunning()
+        hideInlineFrontCameraPreview(animated: true)
         deactivatePictureInPictureAudioSession()
         updateCameraState(animated: true)
-        statusLabel.text = isSystemRecordingActive ? "系统录屏中，前摄已关闭" : "准备就绪：点中间按钮后选择开始直播"
+        if shouldUpdateStatus {
+            statusLabel.text = frontCameraStatusText()
+        }
+        syncPictureInPicturePauseState()
     }
 
     private func activatePictureInPictureAudioSession() {
@@ -388,7 +576,10 @@ final class ScreenRecordingViewController: UIViewController {
                                                             mode: .videoChat,
                                                             options: [.defaultToSpeaker, .allowBluetoothHFP])
             try AVAudioSession.sharedInstance().setActive(true)
+            screenRecordingLogger.info("PiP 音频会话已激活")
         } catch {
+            let sessionError = error as NSError
+            screenRecordingLogger.error("PiP 音频会话激活失败 domain=\(sessionError.domain, privacy: .public) code=\(String(sessionError.code), privacy: .public) desc=\(sessionError.localizedDescription, privacy: .public)")
             statusLabel.text = "前摄已开启，浮窗音频会话启动失败"
         }
     }
@@ -396,15 +587,26 @@ final class ScreenRecordingViewController: UIViewController {
     private func setPictureInPictureAutoStartEnabled(_ isEnabled: Bool) {
         guard #available(iOS 14.2, *) else { return }
         pictureInPictureController?.canStartPictureInPictureAutomaticallyFromInline = isEnabled
+        screenRecordingLogger.info("设置 PiP 自动启动 auto=\(logFlag(isEnabled), privacy: .public)")
     }
 
     private func deactivatePictureInPictureAudioSession() {
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        screenRecordingLogger.info("PiP 音频会话已停用")
     }
 
+    /// 刷新录屏 UI 状态，系统停止确认弹窗期间继续保持录制态显示。
     private func updateRecordingState() {
-        isSystemRecordingActive = UIScreen.main.isCaptured
+        let isScreenCaptured = UIScreen.main.isCaptured
+        let isWaitingForStopConfirmation = hasObservedActiveScreenRecording
+            && !isScreenCaptured
+            && pendingScreenRecordingEndWorkItem != nil
+        isSystemRecordingActive = isScreenCaptured || isWaitingForStopConfirmation
         let isRecording = isSystemRecordingActive
+        if isScreenCaptured {
+            cancelPendingScreenRecordingEndConfirmation()
+            hasObservedActiveScreenRecording = true
+        }
         recordButton.backgroundColor = isRecording ? .lightGray : .white
         systemBroadcastPicker.tintColor = AppTheme.primary
         recordButton.accessibilityLabel = isRecording ? "结束录制" : "开始屏幕录制"
@@ -420,15 +622,15 @@ final class ScreenRecordingViewController: UIViewController {
         if !isRecording {
             guard !isCheckingFinishedScreenRecording else { return }
             durationLabel.text = "00:00"
-            hintLabel.text = "点击中间按钮打开系统直播屏幕面板\n需要露脸时，先点上方按钮开启前摄悬浮窗"
-            statusLabel.text = "准备就绪：点中间按钮后选择开始直播"
+            hintLabel.text = isFrontCameraEnabled ? "前摄悬浮窗已打开，浮窗里可暂停、快退和快进" : "点击中间按钮打开系统直播屏幕面板\n需要露脸时，先点上方按钮开启前摄悬浮窗"
+            statusLabel.text = frontCameraStatusText()
         } else {
             if recordingStartDate == nil {
                 recordingStartDate = Date()
                 startDurationTimer()
             }
             hintLabel.text = "正在通过系统录屏，点击中间按钮打开停止直播面板"
-            statusLabel.text = "系统录屏中，停止后自动保存到首页"
+            statusLabel.text = frontCameraStatusText()
         }
     }
 
@@ -476,6 +678,60 @@ final class ScreenRecordingViewController: UIViewController {
         durationLabel.text = String(format: "%02d:%02d", seconds / 60, seconds % 60)
     }
 
+    /// 返回当前前摄悬浮窗对应的状态文案。
+    private func frontCameraStatusText() -> String {
+        if isFrontCameraEnabled {
+            if isFrontCameraRestoredInline {
+                return isSystemRecordingActive ? "系统录屏中，前摄已恢复到页面内预览" : "前摄已恢复到页面内预览，切到桌面后继续浮窗"
+            }
+            if isFrontCameraPaused {
+                return isSystemRecordingActive ? "系统录屏中，前摄悬浮窗已暂停" : "前摄悬浮窗已暂停"
+            }
+            return isSystemRecordingActive ? "系统录屏中，前摄悬浮窗已开启，可点暂停/快退/快进" : "前摄悬浮窗已开启，可点暂停/快退/快进"
+        }
+        return isSystemRecordingActive ? "系统录屏中，停止后自动保存到首页" : "准备就绪：点中间按钮后选择开始直播"
+    }
+
+    /// 同步 PiP 内容里的暂停按钮样式。
+    private func syncPictureInPicturePauseState() {
+        pictureInPictureController?.invalidatePlaybackState()
+    }
+
+    /// 暂停前摄悬浮窗的实时画面。
+    private func pauseFrontCameraPictureInPicture() {
+        guard isFrontCameraEnabled, !isFrontCameraPaused else { return }
+        isFrontCameraPaused = true
+        frontCameraSession.setSampleBufferDeliveryPaused(true)
+        syncPictureInPicturePauseState()
+        statusLabel.text = frontCameraStatusText()
+    }
+
+    /// 恢复前摄悬浮窗的实时画面。
+    private func resumeFrontCameraPictureInPicture() {
+        guard isFrontCameraEnabled, isFrontCameraPaused else { return }
+        isFrontCameraPaused = false
+        frontCameraSession.setSampleBufferDeliveryPaused(false)
+        refreshFrontCameraPictureInPictureState()
+        startCameraPictureInPictureIfPossible()
+        syncPictureInPicturePauseState()
+        statusLabel.text = frontCameraStatusText()
+    }
+
+    /// 切换前摄悬浮窗的暂停状态。
+    private func toggleFrontCameraPause() {
+        isFrontCameraPaused ? resumeFrontCameraPictureInPicture() : pauseFrontCameraPictureInPicture()
+    }
+
+    /// 向下调整前摄预览缩放，模拟系统 PiP 的快退方向按钮。
+    private func decreaseFrontCameraZoom() {
+        frontCameraSession.adjustZoom(by: -0.18)
+    }
+
+    /// 向上调整前摄预览缩放，模拟系统 PiP 的快进方向按钮。
+    private func increaseFrontCameraZoom() {
+        frontCameraSession.adjustZoom(by: 0.18)
+    }
+
     @objc private func cameraToggleTapped() {
         isFrontCameraEnabled ? disableFrontCamera() : enableFrontCamera()
     }
@@ -493,46 +749,125 @@ final class ScreenRecordingViewController: UIViewController {
     }
 
     @objc private func appWillResignActive() {
+        screenRecordingLogger.info("App 将进入非活跃 appState=\(self.applicationStateDescription, privacy: .public)")
+        guard !isFrontCameraPaused else {
+            screenRecordingLogger.info("跳过前摄非活跃恢复：当前已暂停")
+            return
+        }
+        isFrontCameraRestoredInline = false
+        refreshFrontCameraPictureInPictureState()
         startCameraPictureInPictureIfPossible()
+        retryStartCameraPictureInPictureIfNeeded()
     }
 
+    @objc private func appDidEnterBackground() {
+        screenRecordingLogger.info("App 已进入后台 appState=\(self.applicationStateDescription, privacy: .public)")
+        isFrontCameraRestoredInline = false
+        refreshFrontCameraPictureInPictureState()
+        retryStartCameraPictureInPictureIfNeeded()
+    }
+
+    /// App 回到前台时同步录屏状态，并在录屏已结束时关闭前摄 PiP。
     @objc private func appDidBecomeActive() {
-        let wasRecording = hasActiveScreenRecordingState
+        screenRecordingLogger.info("App 回到前台 appState=\(self.applicationStateDescription, privacy: .public)")
+        let wasRecording = hasObservedActiveScreenRecording
+        let isScreenCaptured = UIScreen.main.isCaptured
+        let isWaitingForStopConfirmation = scheduleScreenRecordingEndConfirmationIfNeeded(wasRecording: wasRecording,
+                                                                                          isScreenCaptured: isScreenCaptured,
+                                                                                          reason: "录屏结束回前台")
         updateRecordingState()
-        if isFrontCameraEnabled {
+        if !isWaitingForStopConfirmation {
+            refreshFrontCameraPictureInPictureState()
+        }
+        if isFrontCameraEnabled, !isFrontCameraPaused, !isHandlingPiPRestore, !isFrontCameraRestoredInline, isScreenCaptured {
             startCameraPictureInPictureIfPossible()
             retryStartCameraPictureInPictureIfNeeded()
         }
-        if wasRecording, !UIScreen.main.isCaptured {
-            recordingStartDate = nil
-            stopDurationTimer()
-            checkForFinishedScreenRecording()
+    }
+
+    /// 系统录屏状态变化时刷新 UI，结束录屏后同步关闭前摄 PiP。
+    @objc private func screenCaptureDidChange() {
+        DispatchQueue.main.async {
+            let wasRecording = self.hasObservedActiveScreenRecording
+            let isScreenCaptured = UIScreen.main.isCaptured
+            if isScreenCaptured {
+                if !wasRecording {
+                    self.screenRecordingLookupStartDate = Date().addingTimeInterval(-3)
+                    self.recordingStartDate = Date()
+                    self.startDurationTimer()
+                } else if self.recordingStartDate == nil || self.durationTimer == nil {
+                    self.recordingStartDate = self.recordingStartDate ?? Date()
+                    self.startDurationTimer()
+                }
+                self.hasObservedActiveScreenRecording = true
+            } else {
+                self.scheduleScreenRecordingEndConfirmationIfNeeded(wasRecording: wasRecording,
+                                                                    isScreenCaptured: isScreenCaptured,
+                                                                    reason: "系统录屏结束")
+            }
+            self.updateRecordingState()
         }
     }
 
-    @objc private func screenCaptureDidChange() {
-        DispatchQueue.main.async {
-            let wasRecording = self.hasActiveScreenRecordingState
-            if UIScreen.main.isCaptured {
-                if !wasRecording {
-                    self.screenRecordingLookupStartDate = Date().addingTimeInterval(-3)
-                }
-                self.recordingStartDate = Date()
-                self.startDurationTimer()
-            } else {
-                self.recordingStartDate = nil
-                self.stopDurationTimer()
-            }
-            self.updateRecordingState()
-            if wasRecording, !UIScreen.main.isCaptured {
-                self.checkForFinishedScreenRecording()
-            }
+    /// 取消待确认的录屏结束任务，用户点系统弹窗“取消”后继续保持录制态。
+    private func cancelPendingScreenRecordingEndConfirmation() {
+        pendingScreenRecordingEndWorkItem?.cancel()
+        pendingScreenRecordingEndWorkItem = nil
+    }
+
+    /// 发现疑似录屏结束后延迟确认，避开系统“停止直播？”弹窗的中间态。
+    @discardableResult
+    private func scheduleScreenRecordingEndConfirmationIfNeeded(wasRecording: Bool,
+                                                                isScreenCaptured: Bool,
+                                                                reason: String) -> Bool {
+        guard wasRecording, !isScreenCaptured else { return false }
+        cancelPendingScreenRecordingEndConfirmation()
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.finishScreenRecordingIfStillStopped(reason: reason)
         }
+        pendingScreenRecordingEndWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2, execute: workItem)
+        return true
+    }
+
+    /// 只有 App 已回到活跃态且系统录屏仍为未捕获时，才真正关闭浮窗和保存草稿。
+    private func finishScreenRecordingIfStillStopped(reason: String) {
+        pendingScreenRecordingEndWorkItem = nil
+        guard hasObservedActiveScreenRecording else { return }
+        guard !UIScreen.main.isCaptured else {
+            updateRecordingState()
+            refreshFrontCameraPictureInPictureState()
+            return
+        }
+        guard UIApplication.shared.applicationState == .active else {
+            screenRecordingLogger.info("暂缓确认录屏结束：App 尚未回到活跃态 reason=\(reason, privacy: .public) appState=\(self.applicationStateDescription, privacy: .public)")
+            return
+        }
+        checkForFinishedScreenRecording(endReason: reason)
+    }
+
+    /// 取消误触发的结束处理，恢复为正在录屏状态。
+    private func cancelScreenRecordingEndHandlingAfterResume() {
+        isCheckingFinishedScreenRecording = false
+        hasObservedActiveScreenRecording = true
+        updateRecordingState()
+        refreshFrontCameraPictureInPictureState()
+        statusLabel.text = frontCameraStatusText()
+    }
+
+    /// 已确认录屏真正结束后，统一停止计时并关闭前摄 PiP。
+    private func finalizeConfirmedScreenRecordingEnd(reason: String) {
+        hasObservedActiveScreenRecording = false
+        recordingStartDate = nil
+        stopDurationTimer()
+        closeFrontCameraPictureInPicture(reason: reason, shouldUpdateStatus: false)
     }
 
     // MARK: - Actions
 
+    /// 点击返回按钮时先关闭前摄 PiP，再按当前录屏状态决定是否返回。
     @objc private func closeTapped() {
+        closeFrontCameraPictureInPicture(reason: "返回按钮点击", shouldUpdateStatus: isSystemRecordingActive)
         if isSystemRecordingActive {
             showAlert("正在录屏", "请先通过系统录屏面板结束录制后再返回首页。")
         } else {
@@ -540,7 +875,7 @@ final class ScreenRecordingViewController: UIViewController {
         }
     }
 
-    private func checkForFinishedScreenRecording(retryCount: Int = 0) {
+    private func checkForFinishedScreenRecording(retryCount: Int = 0, endReason: String = "系统录屏结束") {
         if retryCount == 0 {
             guard !isCheckingFinishedScreenRecording else { return }
             isCheckingFinishedScreenRecording = true
@@ -549,31 +884,40 @@ final class ScreenRecordingViewController: UIViewController {
         let delay: TimeInterval = retryCount == 0 ? 1.2 : 0.9
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
             guard let self else { return }
+            guard !UIScreen.main.isCaptured else {
+                self.cancelScreenRecordingEndHandlingAfterResume()
+                return
+            }
             self.statusLabel.text = retryCount == 0 ? "录屏已结束，正在保存到首页…" : "正在读取录屏文件…"
             self.loadLatestScreenRecordingCandidate { candidate in
+                guard !UIScreen.main.isCaptured else {
+                    self.cancelScreenRecordingEndHandlingAfterResume()
+                    return
+                }
                 if let candidate {
+                    self.finalizeConfirmedScreenRecordingEnd(reason: endReason)
                     self.saveScreenRecordingDraft(candidate)
-                } else if retryCount < 8 {
-                    self.checkForFinishedScreenRecording(retryCount: retryCount + 1)
+                } else if retryCount < Constants.screenRecordingImportRetryLimit {
+                    self.checkForFinishedScreenRecording(retryCount: retryCount + 1, endReason: endReason)
                 } else {
                     self.isCheckingFinishedScreenRecording = false
-                    self.statusLabel.text = "录屏已结束，返回首页…"
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-                        self?.backToHome()
-                    }
+                    self.statusLabel.text = "未确认录屏已停止，请在系统弹窗点停止后稍等"
+                    self.refreshFrontCameraPictureInPictureState()
                 }
             }
         }
     }
 
     private func saveScreenRecordingDraft(_ candidate: ScreenRecordingCandidate) {
-        guard savingAssetIdentifier != candidate.assetIdentifier else {
+        guard shouldImportScreenRecordingCandidate(candidate) else {
             discardScreenRecordingCandidate(candidate)
             isCheckingFinishedScreenRecording = false
+            statusLabel.text = "录屏已保存，返回首页…"
             backToHome()
             return
         }
         guard FileManager.default.fileExists(atPath: candidate.videoURL.path) else {
+            processedScreenRecordingAssetIdentifiers.remove(candidate.assetIdentifier)
             isCheckingFinishedScreenRecording = false
             statusLabel.text = "录屏文件读取失败，返回首页…"
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
@@ -591,17 +935,28 @@ final class ScreenRecordingViewController: UIViewController {
                                            subtitleTrack: [],
                                            isDraft: true,
                                            aspect: AspectSettings(isPiPEnabled: false),
-                                           sourceKind: .screen)
+                                           sourceKind: .screen,
+                                           sourceAssetIdentifier: candidate.assetIdentifier)
             _ = try DraftStore.shared.save(project)
             discardScreenRecordingCandidate(candidate)
             savingAssetIdentifier = nil
             isCheckingFinishedScreenRecording = false
             backToHome()
         } catch {
+            processedScreenRecordingAssetIdentifiers.remove(candidate.assetIdentifier)
             savingAssetIdentifier = nil
             isCheckingFinishedScreenRecording = false
             showAlert("保存草稿失败", error.localizedDescription)
         }
+    }
+
+    /// 判断当前录屏相册资源是否允许导入，并立即登记为处理中。
+    private func shouldImportScreenRecordingCandidate(_ candidate: ScreenRecordingCandidate) -> Bool {
+        guard savingAssetIdentifier != candidate.assetIdentifier else { return false }
+        guard !processedScreenRecordingAssetIdentifiers.contains(candidate.assetIdentifier) else { return false }
+        guard !DraftStore.shared.containsSourceAssetIdentifier(candidate.assetIdentifier) else { return false }
+        processedScreenRecordingAssetIdentifiers.insert(candidate.assetIdentifier)
+        return true
     }
 
     private func discardScreenRecordingCandidate(_ candidate: ScreenRecordingCandidate) {
@@ -655,21 +1010,18 @@ final class ScreenRecordingViewController: UIViewController {
         fetchOptions.predicate = NSPredicate(format: "mediaType == %d", PHAssetMediaType.video.rawValue)
         let fetchResult = PHAsset.fetchAssets(with: fetchOptions)
         let lowerBound = screenRecordingLookupStartDate ?? Date().addingTimeInterval(-120)
-        var fallbackAsset: PHAsset?
+        var matchedAsset: PHAsset?
         fetchResult.enumerateObjects { asset, _, stop in
             guard let creationDate = asset.creationDate, creationDate >= lowerBound else { return }
-            if fallbackAsset == nil {
-                fallbackAsset = asset
-            }
             let hasMatchingFilename = PHAssetResource.assetResources(for: asset).contains {
                 $0.originalFilename.hasPrefix(Constants.recordingFilePrefix)
             }
             if hasMatchingFilename {
-                fallbackAsset = asset
+                matchedAsset = asset
                 stop.pointee = true
             }
         }
-        return fallbackAsset
+        return matchedAsset
     }
 
     private func exportAssetForDraft(_ asset: PHAsset, completion: @escaping (ScreenRecordingCandidate?) -> Void) {
@@ -735,139 +1087,152 @@ private struct ScreenRecordingCandidate {
 @available(iOS 15.0, *)
 extension ScreenRecordingViewController: AVPictureInPictureControllerDelegate {
     func pictureInPictureControllerIsPictureInPicturePossibleDidChange(_ pictureInPictureController: AVPictureInPictureController) {
+        logPictureInPictureState("PiP可用状态变化")
         guard isFrontCameraEnabled, pictureInPictureController.isPictureInPicturePossible else { return }
         startCameraPictureInPictureIfPossible()
     }
 
     func pictureInPictureControllerDidStartPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
-        statusLabel.text = isSystemRecordingActive ? "系统录屏中" : "前摄浮窗已开启，可切到桌面"
+        logPictureInPictureState("PiP已启动")
+        if isHandlingPiPRestore {
+            finishPictureInPictureRestoreFlow()
+        }
+        syncPictureInPicturePauseState()
+        statusLabel.text = frontCameraStatusText()
     }
 
     func pictureInPictureController(_ pictureInPictureController: AVPictureInPictureController,
                                     failedToStartPictureInPictureWithError error: Error) {
+        let startError = error as NSError
+        screenRecordingLogger.error("PiP启动失败 domain=\(startError.domain, privacy: .public) code=\(String(startError.code), privacy: .public) desc=\(startError.localizedDescription, privacy: .public)")
         DispatchQueue.main.async {
-            self.deactivatePictureInPictureAudioSession()
+            if self.isFrontCameraEnabled {
+                self.activatePictureInPictureAudioSession()
+                self.frontCameraSession.startRunning()
+                self.retryStartCameraPictureInPictureIfNeeded()
+            } else {
+                self.deactivatePictureInPictureAudioSession()
+            }
             self.statusLabel.text = "前摄悬浮窗启动失败，可继续录屏"
         }
     }
 
     func pictureInPictureController(_ pictureInPictureController: AVPictureInPictureController,
                                     restoreUserInterfaceForPictureInPictureStopWithCompletionHandler completionHandler: @escaping (Bool) -> Void) {
-        isHandlingPiPRestore = true
+        logPictureInPictureState("PiP请求恢复界面")
+        beginPictureInPictureRestoreFlow()
         completionHandler(false)
-        guard isFrontCameraEnabled else {
-            isHandlingPiPRestore = false
-            return
-        }
-        activatePictureInPictureAudioSession()
-        frontCameraSession.startRunning()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { [weak self] in
-            guard let self else { return }
-            self.isHandlingPiPRestore = false
-            self.startCameraPictureInPictureIfPossible()
-            self.retryStartCameraPictureInPictureIfNeeded()
+        statusLabel.text = frontCameraStatusText()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            guard let self, self.isHandlingPiPRestore else { return }
+            if pictureInPictureController.isPictureInPictureActive {
+                self.isFrontCameraRestoredInline = false
+            } else {
+                self.showInlineFrontCameraPreview(animated: true)
+            }
+            self.finishPictureInPictureRestoreFlow()
         }
     }
 
     func pictureInPictureControllerDidStopPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
-        guard !isHandlingPiPRestore else { return }
+        logPictureInPictureState("PiP已停止")
+        guard !isHandlingPiPRestore else {
+            isFrontCameraRestoredInline = true
+            showInlineFrontCameraPreview(animated: true)
+            refreshFrontCameraPictureInPictureState()
+            statusLabel.text = frontCameraStatusText()
+            finishPictureInPictureRestoreFlow()
+            return
+        }
         guard isFrontCameraEnabled else {
             deactivatePictureInPictureAudioSession()
             return
         }
-        activatePictureInPictureAudioSession()
-        frontCameraSession.startRunning()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
-            guard let self, self.isFrontCameraEnabled else { return }
-            self.startCameraPictureInPictureIfPossible()
-            self.retryStartCameraPictureInPictureIfNeeded()
-            self.statusLabel.text = self.isSystemRecordingActive ? "系统录屏中" : "前摄浮窗已开启，可切到桌面"
-        }
+        stopFrontCameraSessionAndUpdateState()
     }
 }
 
 @available(iOS 15.0, *)
-private final class PiPCameraViewController: UIViewController {
-    private let cameraSession: FrontCameraSessionController
-    private let touchShield = UIControl()
-    private let closeButton = UIButton(type: .system)
-    private var previewLayer: AVCaptureVideoPreviewLayer?
-    var onCloseTapped: (() -> Void)?
-
-    init(cameraSession: FrontCameraSessionController) {
-        self.cameraSession = cameraSession
-        super.init(nibName: nil, bundle: nil)
-    }
-
-    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-
-    override func viewDidLoad() {
-        super.viewDidLoad()
-        view.backgroundColor = .black
-        view.layer.cornerRadius = 18
-        view.layer.cornerCurve = .continuous
-        view.layer.masksToBounds = true
-        attachPreviewLayer()
-        setupTouchShield()
-        setupCloseButton()
-    }
-
-    override func viewDidLayoutSubviews() {
-        super.viewDidLayoutSubviews()
-        previewLayer?.frame = view.bounds
-    }
-
-    private func attachPreviewLayer() {
-        let layer = cameraSession.makePreviewLayer()
-        layer.frame = view.bounds
-        view.layer.insertSublayer(layer, at: 0)
-        previewLayer = layer
-    }
-
-    private func setupTouchShield() {
-        touchShield.backgroundColor = .clear
-        touchShield.addTarget(self, action: #selector(ignoreCameraTap), for: .touchUpInside)
-        view.addSubview(touchShield)
-        touchShield.snp.makeConstraints { make in
-            make.edges.equalToSuperview()
+extension ScreenRecordingViewController: AVPictureInPictureSampleBufferPlaybackDelegate {
+    /// 系统请求开始或暂停播放时，切换前摄会话状态。
+    func pictureInPictureController(_ pictureInPictureController: AVPictureInPictureController, setPlaying playing: Bool) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            if playing {
+                self.resumeFrontCameraPictureInPicture()
+            } else {
+                self.pauseFrontCameraPictureInPicture()
+            }
+            self.syncPictureInPicturePauseState()
         }
     }
 
-    private func setupCloseButton() {
-        let image = UIImage(systemName: "xmark",
-                            withConfiguration: UIImage.SymbolConfiguration(pointSize: 16, weight: .light))
-        var configuration = UIButton.Configuration.plain()
-        configuration.image = image
-        configuration.baseForegroundColor = .white
-        configuration.contentInsets = NSDirectionalEdgeInsets(top: 12, leading: 12, bottom: 52, trailing: 52)
-        closeButton.configuration = configuration
-        closeButton.tintColor = .white
-        closeButton.backgroundColor = .clear
-        closeButton.layer.shadowColor = UIColor.black.cgColor
-        closeButton.layer.shadowOpacity = 0.22
-        closeButton.layer.shadowRadius = 4
-        closeButton.layer.shadowOffset = CGSize(width: 0, height: 1)
-        closeButton.accessibilityLabel = "关闭前置摄像头"
-        closeButton.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
-        view.addSubview(closeButton)
-        view.bringSubviewToFront(closeButton)
-        closeButton.snp.makeConstraints { make in
-            make.top.leading.equalToSuperview()
-            make.size.equalTo(80)
+    /// 返回当前样本缓冲流的可播放时间范围。
+    func pictureInPictureControllerTimeRangeForPlayback(_ pictureInPictureController: AVPictureInPictureController) -> CMTimeRange {
+        guard isFrontCameraEnabled else {
+            return .invalid
         }
+        return CMTimeRange(start: .zero, duration: .positiveInfinity)
     }
 
-    @objc private func closeTapped() {
-        onCloseTapped?()
+    /// 告诉系统当前 UI 是否应该呈现为暂停态。
+    func pictureInPictureControllerIsPlaybackPaused(_ pictureInPictureController: AVPictureInPictureController) -> Bool {
+        isFrontCameraPaused || !isFrontCameraEnabled
     }
 
-    @objc private func ignoreCameraTap() {}
+    /// 系统浮窗尺寸变化时，保留日志，便于后续调参。
+    func pictureInPictureController(_ pictureInPictureController: AVPictureInPictureController,
+                                    didTransitionToRenderSize newRenderSize: CMVideoDimensions) {
+        screenRecordingLogger.info("PiP 渲染尺寸变化 width=\(newRenderSize.width, privacy: .public) height=\(newRenderSize.height, privacy: .public)")
+    }
+
+    /// 系统请求快进或快退时，先把它映射成一个轻量缩放操作。
+    func pictureInPictureController(_ pictureInPictureController: AVPictureInPictureController,
+                                    skipByInterval skipInterval: CMTime,
+                                    completion: @escaping () -> Void) {
+        if skipInterval.seconds >= 0 {
+            increaseFrontCameraZoom()
+        } else {
+            decreaseFrontCameraZoom()
+        }
+        completion()
+    }
+
+    /// 手机前摄不需要在后台继续播放音频。
+    func pictureInPictureControllerShouldProhibitBackgroundAudioPlayback(_ pictureInPictureController: AVPictureInPictureController) -> Bool {
+        true
+    }
 }
 
-private final class FrontCameraSessionController {
+private final class FrontCameraSessionController: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
+    /// 承载前摄录制的会话对象。
     private let session = AVCaptureSession()
+    /// 串行执行相机配置和启停，避免线程竞争。
     private let sessionQueue = DispatchQueue(label: "com.pinbo.screen-recording.front-camera")
+    /// 缓存当前前摄设备，便于后续调整缩放。
+    private var frontCameraDevice: AVCaptureDevice?
+    /// 记录当前缩放倍数，供 PiP 的方向按钮使用。
+    private var currentZoomFactor: CGFloat = 1
+    /// 负责把相机帧转交给系统 PiP 的样本缓冲显示层。
+    private weak var sampleBufferDisplayLayer: AVSampleBufferDisplayLayer?
+    /// 视频数据输出队列，避免阻塞相机采集线程。
+    private let sampleBufferOutputQueue = DispatchQueue(label: "com.pinbo.screen-recording.front-camera.sample-buffer")
+    /// 把相机帧输出给样本缓冲层的视频输出。
+    private let videoDataOutput = AVCaptureVideoDataOutput()
+    /// 保护样本显示状态，避免主线程同步等待相机会话队列。
+    private let sampleBufferStateLock = NSLock()
+    /// 记录样本缓冲层是否已经收到第一帧。
+    private var hasDisplayedFirstSampleBuffer = false
+    /// 标记是否临时冻结 PiP 画面输出。
+    private var isSampleBufferDeliveryPaused = false
+    /// 第一帧成功送入显示层后的回调。
+    var onFirstSampleBufferDisplayed: (() -> Void)?
     private var isConfigured = false
+    private var hasRegisteredSessionObservers = false
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
 
     func makePreviewLayer() -> AVCaptureVideoPreviewLayer {
         let layer = AVCaptureVideoPreviewLayer(session: session)
@@ -875,41 +1240,279 @@ private final class FrontCameraSessionController {
         return layer
     }
 
+    /// 指定系统 PiP 使用的样本缓冲显示层。
+    func setSampleBufferDisplayLayer(_ displayLayer: AVSampleBufferDisplayLayer?) {
+        sessionQueue.async {
+            self.sampleBufferDisplayLayer = displayLayer
+        }
+    }
+
+    /// 提前配置前摄输入和样本输出，不启动采集，减少首次打开等待。
+    func prepareIfNeeded() {
+        sessionQueue.async {
+            guard !self.isConfigured else { return }
+            self.registerSessionObserversIfNeeded()
+            _ = self.configureIfNeeded()
+        }
+    }
+
+    /// 当前是否已经有首帧可供系统 PiP 展示。
+    var hasDisplayedSampleBuffer: Bool {
+        sampleBufferStateLock.lock()
+        defer { sampleBufferStateLock.unlock() }
+        return hasDisplayedFirstSampleBuffer
+    }
+
+    /// 设置样本帧是否继续进入 PiP，用于暂停按钮冻结画面。
+    func setSampleBufferDeliveryPaused(_ isPaused: Bool) {
+        sampleBufferStateLock.lock()
+        isSampleBufferDeliveryPaused = isPaused
+        sampleBufferStateLock.unlock()
+    }
+
+    /// 重新打开前摄浮窗前清空旧帧，避免显示层复用黑屏或失败状态。
+    func resetSampleBufferDisplayState() {
+        setHasDisplayedFirstSampleBuffer(false)
+        sessionQueue.async {
+            let displayLayer = self.sampleBufferDisplayLayer
+            DispatchQueue.main.async {
+                displayLayer?.flushAndRemoveImage()
+            }
+        }
+    }
+
     func startRunning(completion: ((Bool) -> Void)? = nil) {
         sessionQueue.async {
+            screenRecordingLogger.info("前摄会话准备启动 configured=\(logFlag(self.isConfigured), privacy: .public) running=\(logFlag(self.session.isRunning), privacy: .public) \(self.multitaskingCameraStateDescription(), privacy: .public)")
+            self.registerSessionObserversIfNeeded()
             guard self.configureIfNeeded() else {
+                screenRecordingLogger.error("前摄会话配置失败，无法启动")
                 DispatchQueue.main.async { completion?(false) }
                 return
             }
             guard !self.session.isRunning else {
+                screenRecordingLogger.info("前摄会话已在运行")
                 DispatchQueue.main.async { completion?(true) }
                 return
             }
             self.session.startRunning()
+            screenRecordingLogger.info("前摄会话启动完成 running=\(logFlag(self.session.isRunning), privacy: .public) \(self.multitaskingCameraStateDescription(), privacy: .public)")
             DispatchQueue.main.async { completion?(true) }
         }
     }
 
     func stopRunning() {
         sessionQueue.async {
-            guard self.session.isRunning else { return }
+            guard self.session.isRunning else {
+                screenRecordingLogger.info("跳过停止前摄会话：未运行")
+                return
+            }
+            screenRecordingLogger.info("停止前摄会话")
             self.session.stopRunning()
         }
+    }
+
+    /// 注册相机会话中断通知，避免后台切换后预览卡住。
+    private func registerSessionObserversIfNeeded() {
+        guard !hasRegisteredSessionObservers else { return }
+        hasRegisteredSessionObservers = true
+        screenRecordingLogger.info("注册前摄会话中断监听")
+        NotificationCenter.default.addObserver(self,
+                                               selector: #selector(sessionRuntimeError(_:)),
+                                               name: .AVCaptureSessionRuntimeError,
+                                               object: session)
+        NotificationCenter.default.addObserver(self,
+                                               selector: #selector(sessionWasInterrupted(_:)),
+                                               name: .AVCaptureSessionWasInterrupted,
+                                               object: session)
+        NotificationCenter.default.addObserver(self,
+                                               selector: #selector(sessionInterruptionEnded(_:)),
+                                               name: .AVCaptureSessionInterruptionEnded,
+                                               object: session)
+    }
+
+    @objc private func sessionRuntimeError(_ notification: Notification) {
+        sessionQueue.async {
+            let runtimeError = notification.userInfo?[AVCaptureSessionErrorKey] as? NSError
+            screenRecordingLogger.error("前摄会话运行错误 domain=\(runtimeError?.domain ?? "nil", privacy: .public) code=\(String(runtimeError?.code ?? 0), privacy: .public) desc=\(runtimeError?.localizedDescription ?? "nil", privacy: .public)")
+            if self.session.isRunning {
+                self.session.stopRunning()
+            }
+            self.session.startRunning()
+            screenRecordingLogger.info("前摄会话运行错误后重启 running=\(logFlag(self.session.isRunning), privacy: .public)")
+        }
+    }
+
+    @objc private func sessionWasInterrupted(_ notification: Notification) {
+        let reasonValue = notification.userInfo?[AVCaptureSessionInterruptionReasonKey] as? Int
+        let reasonDescription = Self.interruptionReasonDescription(reasonValue)
+        screenRecordingLogger.warning("前摄会话被系统中断 reason=\(reasonDescription, privacy: .public) running=\(logFlag(self.session.isRunning), privacy: .public) \(self.multitaskingCameraStateDescription(), privacy: .public)")
+    }
+
+    @objc private func sessionInterruptionEnded(_ notification: Notification) {
+        screenRecordingLogger.info("前摄会话中断结束，准备恢复")
+        startRunning()
     }
 
     private func configureIfNeeded() -> Bool {
         if isConfigured { return true }
         guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .front),
               let input = try? AVCaptureDeviceInput(device: device),
-              session.canAddInput(input) else { return false }
+              session.canAddInput(input) else {
+            screenRecordingLogger.error("找不到可用前置摄像头输入")
+            return false
+        }
         session.beginConfiguration()
         session.sessionPreset = .medium
         session.addInput(input)
+        frontCameraDevice = device
+        currentZoomFactor = device.videoZoomFactor
+        videoDataOutput.alwaysDiscardsLateVideoFrames = true
+        videoDataOutput.videoSettings = [
+            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA
+        ]
+        videoDataOutput.setSampleBufferDelegate(self, queue: sampleBufferOutputQueue)
+        guard session.canAddOutput(videoDataOutput) else {
+            screenRecordingLogger.error("无法添加前摄视频数据输出")
+            session.commitConfiguration()
+            return false
+        }
+        session.addOutput(videoDataOutput)
+        if let connection = videoDataOutput.connection(with: .video) {
+            if connection.isVideoOrientationSupported {
+                connection.videoOrientation = .portrait
+            }
+            if connection.isVideoMirroringSupported {
+                connection.automaticallyAdjustsVideoMirroring = false
+                connection.isVideoMirrored = true
+            }
+        }
         if #available(iOS 16.0, *), session.isMultitaskingCameraAccessSupported {
             session.isMultitaskingCameraAccessEnabled = true
+            screenRecordingLogger.info("已开启多任务相机访问 \(self.multitaskingCameraStateDescription(), privacy: .public)")
+        } else {
+            screenRecordingLogger.warning("当前会话不支持多任务相机访问 \(self.multitaskingCameraStateDescription(), privacy: .public)")
         }
         session.commitConfiguration()
         isConfigured = true
+        screenRecordingLogger.info("前摄会话配置完成 device=\(device.localizedName, privacy: .public) preset=medium \(self.multitaskingCameraStateDescription(), privacy: .public)")
         return true
+    }
+
+    /// 调整前摄画面缩放倍数。
+    func adjustZoom(by delta: CGFloat) {
+        sessionQueue.async {
+            guard let device = self.frontCameraDevice else {
+                screenRecordingLogger.info("跳过调整前摄缩放：设备尚未配置")
+                return
+            }
+            let minimumZoom = max(1, device.minAvailableVideoZoomFactor)
+            let maximumZoom = device.maxAvailableVideoZoomFactor
+            let targetZoom = min(max(self.currentZoomFactor + delta, minimumZoom), maximumZoom)
+            guard abs(targetZoom - self.currentZoomFactor) > .ulpOfOne else { return }
+            do {
+                try device.lockForConfiguration()
+                device.videoZoomFactor = targetZoom
+                device.unlockForConfiguration()
+                self.currentZoomFactor = targetZoom
+                let zoomText = String(format: "%.2f", targetZoom)
+                screenRecordingLogger.info("前摄缩放调整完成 zoom=\(zoomText, privacy: .public)")
+            } catch {
+                screenRecordingLogger.error("前摄缩放调整失败 desc=\(error.localizedDescription, privacy: .public)")
+            }
+        }
+    }
+
+    /// 将实时相机帧标记为立即显示，避免系统 PiP 按旧时间戳排队导致黑屏。
+    private func markSampleBufferForImmediateDisplay(_ sampleBuffer: CMSampleBuffer) {
+        guard let attachmentsArray = CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, createIfNecessary: true),
+              CFArrayGetCount(attachmentsArray) > 0,
+              let attachmentsPointer = CFArrayGetValueAtIndex(attachmentsArray, 0) else { return }
+        let attachments = unsafeBitCast(attachmentsPointer, to: CFMutableDictionary.self)
+        CFDictionarySetValue(attachments,
+                             Unmanaged.passUnretained(kCMSampleAttachmentKey_DisplayImmediately).toOpaque(),
+                             Unmanaged.passUnretained(kCFBooleanTrue).toOpaque())
+    }
+
+    /// 在主线程把相机帧送入显示层，避免后台队列直接操作 CALayer 造成首帧后失败。
+    private func enqueueSampleBufferForPictureInPicture(_ sampleBuffer: CMSampleBuffer,
+                                                        displayLayer: AVSampleBufferDisplayLayer) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            if displayLayer.status == .failed {
+                let layerError = displayLayer.error as NSError?
+                screenRecordingLogger.error("PiP显示层失败，准备刷新 domain=\(layerError?.domain ?? "nil", privacy: .public) code=\(String(layerError?.code ?? 0), privacy: .public) desc=\(layerError?.localizedDescription ?? "nil", privacy: .public)")
+                displayLayer.flushAndRemoveImage()
+            }
+            guard displayLayer.isReadyForMoreMediaData else { return }
+            displayLayer.enqueue(sampleBuffer)
+            guard self.markFirstSampleBufferDisplayedIfNeeded() else { return }
+            self.onFirstSampleBufferDisplayed?()
+        }
+    }
+
+    /// 将相机采集到的每一帧送入样本缓冲显示层。
+    func captureOutput(_ output: AVCaptureOutput,
+                       didOutput sampleBuffer: CMSampleBuffer,
+                       from connection: AVCaptureConnection) {
+        guard !shouldDropSampleBuffer else { return }
+        guard let displayLayer = sampleBufferDisplayLayer else { return }
+        markSampleBufferForImmediateDisplay(sampleBuffer)
+        enqueueSampleBufferForPictureInPicture(sampleBuffer, displayLayer: displayLayer)
+    }
+
+    /// 标记首帧是否已经进入显示层，并返回是否需要通知外部。
+    private func markFirstSampleBufferDisplayedIfNeeded() -> Bool {
+        sampleBufferStateLock.lock()
+        defer { sampleBufferStateLock.unlock() }
+        guard !hasDisplayedFirstSampleBuffer else { return false }
+        hasDisplayedFirstSampleBuffer = true
+        return true
+    }
+
+    /// 重置首帧状态，不依赖相机会话串行队列，避免关闭时阻塞 UI。
+    private func setHasDisplayedFirstSampleBuffer(_ hasDisplayed: Bool) {
+        sampleBufferStateLock.lock()
+        hasDisplayedFirstSampleBuffer = hasDisplayed
+        sampleBufferStateLock.unlock()
+    }
+
+    /// 当前是否应该丢弃实时样本帧。
+    private var shouldDropSampleBuffer: Bool {
+        sampleBufferStateLock.lock()
+        defer { sampleBufferStateLock.unlock() }
+        return isSampleBufferDeliveryPaused
+    }
+
+    /// 返回多任务相机能力状态文本，辅助判断 entitlement 是否生效。
+    private func multitaskingCameraStateDescription() -> String {
+        if #available(iOS 16.0, *) {
+            return "multitaskingSupported=\(logFlag(session.isMultitaskingCameraAccessSupported)) multitaskingEnabled=\(logFlag(session.isMultitaskingCameraAccessEnabled))"
+        }
+        return "multitaskingSupported=unavailableBeforeIOS16 multitaskingEnabled=unavailableBeforeIOS16"
+    }
+
+    /// 将系统相机中断原因转换为可读日志。
+    private static func interruptionReasonDescription(_ rawValue: Int?) -> String {
+        guard let rawValue,
+              let reason = AVCaptureSession.InterruptionReason(rawValue: rawValue) else {
+            return "unknown"
+        }
+        switch reason {
+        case .videoDeviceInUseByAnotherClient:
+            return "videoDeviceInUseByAnotherClient"
+        case .videoDeviceNotAvailableWithMultipleForegroundApps:
+            return "videoDeviceNotAvailableWithMultipleForegroundApps"
+        case .videoDeviceNotAvailableDueToSystemPressure:
+            return "videoDeviceNotAvailableDueToSystemPressure"
+        case .audioDeviceInUseByAnotherClient:
+            return "audioDeviceInUseByAnotherClient"
+        case .videoDeviceNotAvailableInBackground:
+            return "videoDeviceNotAvailableInBackground"
+        case .sensitiveContentMitigationActivated:
+            return "sensitiveContentMitigationActivated"
+        @unknown default:
+            return "unknownRawValue=\(rawValue)"
+        }
     }
 }

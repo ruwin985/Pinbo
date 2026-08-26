@@ -3,9 +3,11 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="创作者智能中心：拍呗 Pinbo 与 CleanMac。">
+  <meta name="description" content="创作者智能中心：拍呗 Pinbo、CleanMac 与 PictureAI。">
   <meta name="theme-color" content="#0b0d14">
   <title>创作者智能中心</title>
+  <link rel="icon" type="image/png" href="/pinbo/assets/app-icon.png">
+  <link rel="apple-touch-icon" href="/pinbo/assets/app-icon.png">
   <style>
     :root {
       color-scheme: dark;
@@ -16,6 +18,7 @@
       --muted: rgba(255, 255, 255, 0.68);
       --pinbo: #ff3d12;
       --cleanmac: #32d074;
+      --pictureai: #ff7a22;
     }
 
     * {
@@ -47,6 +50,7 @@
       background:
         radial-gradient(circle at 20% 8%, rgba(255, 61, 18, 0.34), transparent 30rem),
         radial-gradient(circle at 84% 10%, rgba(50, 208, 116, 0.24), transparent 28rem),
+        radial-gradient(circle at 52% 72%, rgba(255, 122, 34, 0.2), transparent 26rem),
         linear-gradient(180deg, #10131f 0%, var(--bg) 58%, #05060a 100%);
     }
 
@@ -167,7 +171,7 @@
 
     .products {
       display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
+      grid-template-columns: repeat(3, minmax(0, 1fr));
       gap: 22px;
       margin-top: 56px;
     }
@@ -207,6 +211,10 @@
 
     .product-card.cleanmac::before {
       background: var(--cleanmac);
+    }
+
+    .product-card.pictureai::before {
+      background: var(--pictureai);
     }
 
     .card-content {
@@ -325,6 +333,7 @@
       <nav class="product-nav" aria-label="产品导航">
         <a class="nav-item" href="/pinbo/"><img src="/pinbo/assets/app-icon.png" alt="">拍呗 Pinbo</a>
         <a class="nav-item" href="/CleanMac/"><img src="/CleanMac/images/cleanmac-icon.png" alt="">CleanMac</a>
+        <a class="nav-item" href="/PictureAI/"><img src="/PictureAI/assets/pictureai-icon.svg" alt="">PictureAI</a>
       </nav>
     </div>
   </header>
@@ -333,7 +342,7 @@
     <section class="shell hero" aria-labelledby="main-title">
       <p class="eyebrow">PRODUCTS</p>
       <h1 id="main-title">选择产品，继续开始。</h1>
-      <p class="lead">这里汇总当前项目产品「拍呗 Pinbo」和 CleanMac。点击顶部导航或下方产品卡片即可进入对应网站。</p>
+      <p class="lead">这里汇总当前项目产品「拍呗 Pinbo」、CleanMac 和 PictureAI。点击顶部导航或下方产品卡片即可进入对应网站。</p>
 
       <div class="products">
         <a class="product-card pinbo" href="/pinbo/" aria-label="打开拍呗 Pinbo 产品页">
@@ -351,6 +360,15 @@
             <h2>CleanMac</h2>
             <p>为 macOS 打造的磁盘清理与空间巡检工具，帮助扫描占用、清理缓存和残留文件。</p>
             <span class="open-link">打开 CleanMac <span aria-hidden="true">→</span></span>
+          </div>
+        </a>
+
+        <a class="product-card pictureai" href="/PictureAI/" aria-label="打开 PictureAI 产品页">
+          <div class="card-content">
+            <img class="product-icon" src="/PictureAI/assets/pictureai-icon.svg" alt="PictureAI 图标">
+            <h2>PictureAI</h2>
+            <p>上传照片、文案或录音，生成可预览下载的 AI 开口祝福视频，适合亲情纪念和重要时刻留念。</p>
+            <span class="open-link">打开 PictureAI <span aria-hidden="true">→</span></span>
           </div>
         </a>
       </div>

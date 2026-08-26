@@ -831,12 +831,17 @@ final class EditorViewController: UIViewController {
                          actions: [
                             AppDialogAction(title: "取消", style: .cancel),
                             AppDialogAction(title: "不保存", style: .destructive) { [weak self] _ in
-                                self?.backToHome()
+                                guard let self else { return }
+                                AppStorageCleaner.removeTransientRecordingFiles(from: self.project)
+                                self.backToHome()
                             },
                             AppDialogAction(title: "保存草稿") { [weak self] _ in
                                 guard let self else { return }
                                 do {
-                                    _ = try DraftStore.shared.save(self.project)
+                                    let originalProject = self.project
+                                    let savedProject = try DraftStore.shared.save(self.project)
+                                    AppStorageCleaner.removeTransientRecordingFiles(from: originalProject, keeping: savedProject)
+                                    self.project = savedProject
                                     self.backToHome()
                                 } catch {
                                     self.showAlert("保存草稿失败", error.localizedDescription)

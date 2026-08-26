@@ -69,7 +69,23 @@ public final class DraftStore {
             p.pipVideoURL = existingFile(sub, basename: "pip")
             result.append(p)
         }
-        return result.sorted { $0.createdAt > $1.createdAt }
+        return deduplicatedProjects(result.sorted { $0.createdAt > $1.createdAt })
+    }
+
+    /// 判断指定原始媒体资源是否已经导入为草稿。
+    public func containsSourceAssetIdentifier(_ sourceAssetIdentifier: String) -> Bool {
+        guard !sourceAssetIdentifier.isEmpty else { return false }
+        return loadAll().contains { $0.sourceAssetIdentifier == sourceAssetIdentifier }
+    }
+
+    /// 按原始媒体资源去重，避免同一条系统录屏被重复展示。
+    private func deduplicatedProjects(_ projects: [RecordingProject]) -> [RecordingProject] {
+        var seenSourceAssetIdentifiers: Set<String> = []
+        return projects.filter { project in
+            guard let sourceAssetIdentifier = project.sourceAssetIdentifier,
+                  !sourceAssetIdentifier.isEmpty else { return true }
+            return seenSourceAssetIdentifiers.insert(sourceAssetIdentifier).inserted
+        }
     }
 
     private func existingFile(_ folder: URL, basename: String) -> URL? {

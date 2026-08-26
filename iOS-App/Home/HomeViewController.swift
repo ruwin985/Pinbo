@@ -596,31 +596,36 @@ final class HomeViewController: UIViewController {
     }
 
     private func handleProfileMenuItem(_ item: ProfileMenuItem) {
-        if item == .clearCache {
-            clearAppCache { [weak self] in
-                self?.openProfileDocument(for: item, cacheCleared: true)
-            }
-        } else {
+        switch item {
+        case .clearCache:
+            presentClearCacheConfirmation()
+        default:
             openProfileDocument(for: item)
         }
     }
 
-    private func openProfileDocument(for item: ProfileMenuItem, cacheCleared: Bool = false) {
-        let controller = ProfileDocumentViewController(document: item.makeDocument(cacheCleared: cacheCleared))
+    private func openProfileDocument(for item: ProfileMenuItem,
+                                     cacheCleared: Bool = false,
+                                     cleanupResult: AppStorageCleanupResult? = nil) {
+        let controller = ProfileDocumentViewController(document: item.makeDocument(cacheCleared: cacheCleared,
+                                                                                   cleanupResult: cleanupResult))
         navigationController?.pushViewController(controller, animated: true)
     }
 
-    private func clearAppCache(completion: @escaping () -> Void) {
-        URLCache.shared.removeAllCachedResponses()
-
-        if let cacheDirectory = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first,
-           let files = try? FileManager.default.contentsOfDirectory(at: cacheDirectory, includingPropertiesForKeys: nil) {
-            files.forEach { try? FileManager.default.removeItem(at: $0) }
+    private func presentClearCacheConfirmation() {
+        presentAppConfirmation(title: "清除缓存？",
+                               message: "将清除临时录制文件、网页缓存和首页不可见的无效草稿残留，不会删除首页作品或相册视频。",
+                               confirmTitle: "清除",
+                               confirmStyle: .destructive) { [weak self] in
+            self?.clearAppCache()
         }
+    }
 
-        let websiteCacheTypes: Set<String> = [WKWebsiteDataTypeDiskCache, WKWebsiteDataTypeMemoryCache]
-        WKWebsiteDataStore.default().removeData(ofTypes: websiteCacheTypes, modifiedSince: .distantPast) {
-            DispatchQueue.main.async { completion() }
+    private func clearAppCache() {
+        AppStorageCleaner.clearCache(preserving: drafts) { [weak self] result in
+            guard let self else { return }
+            self.reloadDrafts()
+            self.openProfileDocument(for: .clearCache, cacheCleared: true, cleanupResult: result)
         }
     }
 
@@ -757,6 +762,7 @@ private final class RecordOptionsArrowView: UIView {
 
 private enum ProfileMenuItem: CaseIterable {
     case about
+    case versionUpdate
     case feedback
     case clearCache
     case privacyPolicy
@@ -768,8 +774,9 @@ private enum ProfileMenuItem: CaseIterable {
     var title: String {
         switch self {
         case .about: return "关于我们"
+        case .versionUpdate: return "版本更新"
         case .feedback: return "反馈"
-        case .clearCache: return "清理缓存"
+        case .clearCache: return "清除缓存"
         case .privacyPolicy: return "隐私政策"
         case .userAgreement: return "用户协议"
         case .childrenPrivacy: return "儿童隐私保护声明"
@@ -781,6 +788,7 @@ private enum ProfileMenuItem: CaseIterable {
     var iconName: String {
         switch self {
         case .about: return "info.circle.fill"
+        case .versionUpdate: return "arrow.triangle.2.circlepath.circle.fill"
         case .feedback: return "bubble.left.and.bubble.right.fill"
         case .clearCache: return "trash.fill"
         case .privacyPolicy: return "lock.shield.fill"
@@ -794,6 +802,7 @@ private enum ProfileMenuItem: CaseIterable {
     var tintColor: UIColor {
         switch self {
         case .about: return UIColor(red: 0.36, green: 0.72, blue: 1, alpha: 1)
+        case .versionUpdate: return UIColor(red: 0.48, green: 0.78, blue: 1, alpha: 1)
         case .feedback: return UIColor(red: 0.42, green: 0.92, blue: 0.68, alpha: 1)
         case .clearCache: return UIColor(red: 1, green: 0.58, blue: 0.36, alpha: 1)
         case .privacyPolicy: return UIColor(red: 0.76, green: 0.64, blue: 1, alpha: 1)
@@ -804,7 +813,8 @@ private enum ProfileMenuItem: CaseIterable {
         }
     }
 
-    func makeDocument(cacheCleared: Bool = false) -> ProfileHTMLDocument {
+    func makeDocument(cacheCleared: Bool = false,
+                      cleanupResult: AppStorageCleanupResult? = nil) -> ProfileHTMLDocument {
         switch self {
         case .about:
             return ProfileHTMLDocument(
@@ -826,6 +836,25 @@ private enum ProfileMenuItem: CaseIterable {
                     ProfileHTMLSection(
                         heading: "版本信息",
                         paragraphs: ["当前版本：\(Bundle.main.pinboVersionText)。"]
+                    )
+                ]
+            )
+        case .versionUpdate:
+            return ProfileHTMLDocument(
+                title: title,
+                summary: "查看当前安装版本和后续更新方式。",
+                sections: [
+                    ProfileHTMLSection(
+                        heading: "当前版本",
+                        paragraphs: ["当前版本：\(Bundle.main.pinboVersionText)。"]
+                    ),
+                    ProfileHTMLSection(
+                        heading: "更新说明",
+                        bullets: [
+                            "如果通过 TestFlight 或企业分发安装，请在对应分发渠道获取最新版本。",
+                            "如果后续上架 App Store，可以在这里接入 App Store 跳转或在线版本检测。",
+                            "更新前建议先确认重要作品已经保存到相册或保留在首页草稿中。"
+                        ]
                     )
                 ]
             )
@@ -857,16 +886,18 @@ private enum ProfileMenuItem: CaseIterable {
                 ]
             )
         case .clearCache:
+            let cleanedSizeText = cleanupResult?.formattedRemovedSize ?? "0 KB"
+            let cleanedItemCount = cleanupResult?.removedItemCount ?? 0
             return ProfileHTMLDocument(
                 title: title,
-                summary: cacheCleared ? "缓存已清理完成，作品草稿不会被删除。" : "清理临时缓存，释放本地存储空间。",
+                summary: cacheCleared ? "缓存已清除完成，作品草稿不会被删除。" : "清除临时缓存，释放本地存储空间。",
                 sections: [
                     ProfileHTMLSection(
                         heading: cacheCleared ? "已处理内容" : "清理内容",
                         bullets: [
-                            "已清理 App 缓存目录中的临时文件。",
-                            "已清理系统 URL 缓存。",
-                            "已清理网页说明页相关的磁盘缓存和内存缓存。"
+                            cacheCleared ? "本次预估释放 \(cleanedSizeText)，清除 \(cleanedItemCount) 个本地项目。" : "将清除 App 缓存目录中的临时文件。",
+                            "将清除系统 URL 缓存和网页说明页缓存。",
+                            "将清除屏幕录制导入残留、临时录制文件和首页不可见的无效草稿目录。"
                         ]
                     ),
                     ProfileHTMLSection(
@@ -879,7 +910,7 @@ private enum ProfileMenuItem: CaseIterable {
                     ),
                     ProfileHTMLSection(
                         heading: "后续影响",
-                        paragraphs: ["清理后首次打开部分页面或重新生成临时预览时，可能会短暂重新加载。"]
+                        paragraphs: ["清除后首次打开部分页面或重新生成临时预览时，可能会短暂重新加载。iOS 设置中的“文稿与数据”刷新可能存在延迟，可退出设置后稍后再查看。"]
                     )
                 ]
             )
@@ -995,7 +1026,7 @@ private enum ProfileMenuItem: CaseIterable {
                         bullets: [
                             "使用目的：保存草稿、恢复编辑状态和提升页面加载效率。",
                             "存储位置：设备本地 Documents 与 Caches 目录。",
-                            "用户控制：可删除作品草稿，也可在侧边栏清理缓存。"
+                            "用户控制：可删除作品草稿，也可在侧边栏清除缓存。"
                         ]
                     )
                 ]
