@@ -63,6 +63,7 @@ final class PiPCompositionInstruction: NSObject, AVVideoCompositionInstructionPr
     var fitsMainContent: Bool = false
     var isSplitScreenEnabled: Bool = false
     var splitScreenOrder: CameraSplitOrder = .frontTop
+    var splitScreenTopRatio: CGFloat = 0.5
     var splitScreenKeyframes: [SplitScreenKeyframe] = []
     var totalDuration: Double = 0
     var subtitles: [SubtitleSegment] = []
@@ -143,10 +144,11 @@ final class PiPVideoCompositor: NSObject, AVVideoCompositing {
             var output = CIImage(color: .black).cropped(to: CGRect(origin: .zero, size: canvas))
 
             if instruction.isSplitScreenEnabled {
-                let order = self.splitScreenOrder(at: time,
-                                                  keyframes: instruction.splitScreenKeyframes,
-                                                  fallback: instruction.splitScreenOrder)
-                let frames = self.splitFrames(for: order, in: canvas)
+                let layout = self.splitScreenLayout(at: time,
+                                                    keyframes: instruction.splitScreenKeyframes,
+                                                    fallbackOrder: instruction.splitScreenOrder,
+                                                    fallbackTopRatio: instruction.splitScreenTopRatio)
+                let frames = self.splitFrames(for: layout.order, topRatio: layout.topRatio, in: canvas)
                 if let mainBuf = request.sourceFrame(byTrackID: instruction.mainTrackID) {
                     var mainImg = CIImage(cvPixelBuffer: mainBuf)
                     mainImg = self.oriented(mainImg, transform: instruction.mainTransform)
@@ -207,14 +209,18 @@ final class PiPVideoCompositor: NSObject, AVVideoCompositing {
         return chosen
     }
 
-    private func splitScreenOrder(at time: Double,
-                                  keyframes: [SplitScreenKeyframe],
-                                  fallback: CameraSplitOrder) -> CameraSplitOrder {
+    /// 获取指定时间点应该使用的上下分屏布局。
+    private func splitScreenLayout(at time: Double,
+                                   keyframes: [SplitScreenKeyframe],
+                                   fallbackOrder: CameraSplitOrder,
+                                   fallbackTopRatio: CGFloat) -> SplitScreenKeyframe {
         let sorted = keyframes.sorted { $0.time < $1.time }
-        guard !sorted.isEmpty else { return fallback }
+        guard !sorted.isEmpty else {
+            return SplitScreenKeyframe(time: time, order: fallbackOrder, topRatio: fallbackTopRatio)
+        }
         var chosen = sorted[0]
         for kf in sorted where kf.time <= time { chosen = kf }
-        return chosen.order
+        return chosen
     }
 
     /// 按轨道 preferredTransform 对应的 EXIF 方向把帧摆正。
@@ -230,13 +236,17 @@ final class PiPVideoCompositor: NSObject, AVVideoCompositing {
                       y: kf.center.y * size.height - h / 2, width: w, height: h)
     }
 
-    private func splitFrames(for order: CameraSplitOrder, in size: CGSize) -> (front: CGRect, back: CGRect) {
-        let halfHeight = size.height / 2
-        let top = CGRect(x: 0, y: 0, width: size.width, height: halfHeight)
-        let bottom = CGRect(x: 0, y: halfHeight, width: size.width, height: size.height - halfHeight)
+    /// 根据上半部分占比计算前后摄像头在画布上的区域。
+    private func splitFrames(for order: CameraSplitOrder,
+                             topRatio: CGFloat,
+                             in size: CGSize) -> (front: CGRect, back: CGRect) {
+        let topHeight = size.height * AspectSettings.clampedSplitTopRatio(topRatio)
+        let top = CGRect(x: 0, y: 0, width: size.width, height: topHeight)
+        let bottom = CGRect(x: 0, y: topHeight, width: size.width, height: size.height - topHeight)
         return order == .frontTop ? (front: top, back: bottom) : (front: bottom, back: top)
     }
 
+    /// 将指定画面按填充方式放置到目标区域。
     private func place(_ image: CIImage, in frame: CGRect, canvas: CGSize) -> CIImage {
         let fitted = aspectFill(image, into: frame.size)
         let y = canvas.height - frame.origin.y - frame.height

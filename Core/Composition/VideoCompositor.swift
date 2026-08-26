@@ -111,9 +111,11 @@ public final class VideoCompositor {
         instruction.pipCornerRatio = project.aspect.pip.cornerRatio
         instruction.isSplitScreenEnabled = project.aspect.isSplitScreenEnabled
         instruction.splitScreenOrder = project.aspect.splitOrder
+        instruction.splitScreenTopRatio = project.aspect.splitTopRatio
         instruction.splitScreenKeyframes = shifted(project.splitScreenTrack,
                                                   by: startSeconds,
-                                                  fallback: project.aspect.splitOrder)
+                                                  fallbackOrder: project.aspect.splitOrder,
+                                                  fallbackTopRatio: project.aspect.splitTopRatio)
         instruction.totalDuration = duration.seconds
         instruction.subtitles = includeSubtitles ? shifted(project.subtitleTrack, by: startSeconds, duration: duration.seconds) : []
         instruction.subtitleLayout = project.subtitleLayout
@@ -212,12 +214,15 @@ public final class VideoCompositor {
 
     private func shifted(_ keyframes: [SplitScreenKeyframe],
                          by offset: TimeInterval,
-                         fallback: CameraSplitOrder) -> [SplitScreenKeyframe] {
+                         fallbackOrder: CameraSplitOrder,
+                         fallbackTopRatio: CGFloat) -> [SplitScreenKeyframe] {
         let sorted = keyframes.sorted { $0.time < $1.time }
-        let base = sorted.last(where: { $0.time <= offset }) ?? sorted.first ?? SplitScreenKeyframe(time: 0, order: fallback)
-        var shifted = [SplitScreenKeyframe(time: 0, order: base.order)]
+        let base = sorted.last(where: { $0.time <= offset })
+            ?? sorted.first
+            ?? SplitScreenKeyframe(time: 0, order: fallbackOrder, topRatio: fallbackTopRatio)
+        var shifted = [SplitScreenKeyframe(time: 0, order: base.order, topRatio: base.topRatio)]
         shifted.append(contentsOf: sorted.filter { $0.time > offset }.map {
-            SplitScreenKeyframe(time: $0.time - offset, order: $0.order)
+            SplitScreenKeyframe(time: $0.time - offset, order: $0.order, topRatio: $0.topRatio)
         })
         return shifted
     }
@@ -253,7 +258,7 @@ public final class VideoCompositor {
     private static func renderCanvasSize(for track: AVAssetTrack,
                                          project: RecordingProject,
                                          longEdge: CGFloat) -> CGSize {
-        guard project.aspect.main.isDefault else {
+        guard project.aspect.main.isDefault || project.aspect.isSplitScreenEnabled else {
             return project.aspect.main.canvasSize(longEdge: longEdge)
         }
         switch project.sourceKind {

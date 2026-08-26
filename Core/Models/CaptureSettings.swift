@@ -73,12 +73,25 @@ public enum CameraSplitOrder: String, Codable, Equatable {
 
 /// 大窗 + 小窗的比例设置集合。
 public struct AspectSettings: Codable, Equatable {
+    /// 分屏上半部分可占据的最小比例。
+    public static let minimumSplitTopRatio: CGFloat = 0.28
+    /// 分屏上半部分可占据的最大比例。
+    public static let maximumSplitTopRatio: CGFloat = 0.72
+
+    /// 大窗主画面比例。
     public var main: AspectRatio
+    /// 是否显示前摄像头画中画小窗。
     public var isPiPEnabled: Bool
+    /// 是否开启前后摄像头上下分屏。
     public var isSplitScreenEnabled: Bool
+    /// 上下分屏时前后摄像头的排列顺序。
     public var splitOrder: CameraSplitOrder
+    /// 上下分屏时上半部分占整体高度的比例。
+    public var splitTopRatio: CGFloat
+    /// 前摄像头画中画小窗样式。
     public var pip: PiPStyle
 
+    /// 当前设置是否需要录制第二路视频。
     public var recordsSecondaryVideo: Bool {
         isPiPEnabled || isSplitScreenEnabled
     }
@@ -87,11 +100,13 @@ public struct AspectSettings: Codable, Equatable {
                 isPiPEnabled: Bool = true,
                 isSplitScreenEnabled: Bool = false,
                 splitOrder: CameraSplitOrder = .frontTop,
+                splitTopRatio: CGFloat = 0.5,
                 pip: PiPStyle = PiPStyle()) {
         self.main = main
         self.isSplitScreenEnabled = isSplitScreenEnabled
         self.isPiPEnabled = isSplitScreenEnabled ? false : isPiPEnabled
         self.splitOrder = splitOrder
+        self.splitTopRatio = Self.clampedSplitTopRatio(splitTopRatio)
         self.pip = pip
     }
 
@@ -100,6 +115,7 @@ public struct AspectSettings: Codable, Equatable {
         case isPiPEnabled
         case isSplitScreenEnabled
         case splitOrder
+        case splitTopRatio
         case pip
     }
 
@@ -110,7 +126,13 @@ public struct AspectSettings: Codable, Equatable {
         isSplitScreenEnabled = decodedSplitScreen
         isPiPEnabled = decodedSplitScreen ? false : (try container.decodeIfPresent(Bool.self, forKey: .isPiPEnabled) ?? true)
         splitOrder = try container.decodeIfPresent(CameraSplitOrder.self, forKey: .splitOrder) ?? .frontTop
+        splitTopRatio = Self.clampedSplitTopRatio(try container.decodeIfPresent(CGFloat.self, forKey: .splitTopRatio) ?? 0.5)
         pip = try container.decodeIfPresent(PiPStyle.self, forKey: .pip) ?? PiPStyle()
+    }
+
+    /// 把分屏上半部分比例限制到可操作范围内。
+    public static func clampedSplitTopRatio(_ ratio: CGFloat) -> CGFloat {
+        min(max(ratio, minimumSplitTopRatio), maximumSplitTopRatio)
     }
 }
 

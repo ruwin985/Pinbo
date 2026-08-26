@@ -4,20 +4,34 @@ import SnapKit
 /// 比例设置弹窗：分别调整大窗（主画面）和小窗（画中画）的开关、比例，以及小窗圆角。
 final class AspectSettingsViewController: UIViewController {
 
+    /// 设置变化后的回调。
     var onChange: ((AspectSettings) -> Void)?
+    /// 弹窗内当前正在编辑的比例设置。
     private var settings: AspectSettings
 
+    /// 主画面比例选择控件。
     private let mainSegmented = UISegmentedControl(items: AspectRatio.allCases.map { $0.rawValue })
+    /// 上下分屏开关。
     private let splitSwitch = UISwitch()
+    /// 前摄像头小窗开关。
     private let pipSwitch = UISwitch()
+    /// 前摄像头小窗比例选择控件。
     private let pipSegmented = UISegmentedControl(items: AspectRatio.allCases.map { $0.rawValue })
+    /// 前摄像头小窗圆角滑杆。
     private let cornerSlider = UISlider()
+    /// 前摄像头小窗圆角数值标签。
     private let cornerValueLabel = UILabel()
+    /// 主画面比例配置区域。
     private lazy var mainRatioSection = makeControlSection(title: "大窗比例（主画面）", control: mainSegmented)
+    /// 上下分屏开关区域。
     private lazy var splitSwitchRow = SheetCard.makeRow("上下分屏", splitSwitch)
-    private lazy var splitHintSection = makeHintSection("默认前摄在上、后摄在下；长按任一半屏可切换上下顺序。")
+    /// 上下分屏交互提示区域。
+    private lazy var splitHintSection = makeHintSection("默认前摄在上、后摄在下；长按任一半屏可切换上下顺序；单指上下滑动分屏区域可修改上下内容显示占比。")
+    /// 前摄像头小窗开关区域。
     private lazy var pipSwitchRow = SheetCard.makeRow("前摄像头小窗口", pipSwitch)
+    /// 前摄像头小窗比例配置区域。
     private lazy var pipRatioSection = makeControlSection(title: "小窗比例（画中画）", control: pipSegmented)
+    /// 前摄像头小窗圆角配置区域。
     private lazy var cornerSection = makeSliderSection(title: "小窗圆角", slider: cornerSlider, valueLabel: cornerValueLabel)
 
     init(settings: AspectSettings) {
@@ -62,9 +76,9 @@ final class AspectSettingsViewController: UIViewController {
         cornerValueLabel.textAlignment = .right
         updateCornerLabel()
 
-        card.addContent(mainRatioSection)
         card.addContent(splitSwitchRow)
         card.addContent(splitHintSection)
+        card.addContent(mainRatioSection)
         card.addContent(pipSwitchRow)
         card.addContent(pipRatioSection)
         card.addContent(cornerSection)
@@ -192,6 +206,7 @@ final class AspectSettingsViewController: UIViewController {
     private func updatePiPControlsVisibility() {
         let isSplitScreenEnabled = settings.isSplitScreenEnabled
         let isPiPEnabled = settings.isPiPEnabled
+        mainRatioSection.isHidden = isSplitScreenEnabled
         splitHintSection.isHidden = !isSplitScreenEnabled
         pipSwitch.isEnabled = !isSplitScreenEnabled
         pipSwitchRow.alpha = isSplitScreenEnabled ? 0.45 : 1

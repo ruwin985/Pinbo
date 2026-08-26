@@ -27,10 +27,26 @@ public struct SplitScreenKeyframe: Codable, Equatable {
     public var time: TimeInterval
     /// 上下分屏排列顺序。
     public var order: CameraSplitOrder
+    /// 上半部分占整体高度的比例。
+    public var topRatio: CGFloat
 
-    public init(time: TimeInterval, order: CameraSplitOrder) {
+    public init(time: TimeInterval, order: CameraSplitOrder, topRatio: CGFloat = 0.5) {
         self.time = time
         self.order = order
+        self.topRatio = AspectSettings.clampedSplitTopRatio(topRatio)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case time
+        case order
+        case topRatio
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        time = try container.decode(TimeInterval.self, forKey: .time)
+        order = try container.decode(CameraSplitOrder.self, forKey: .order)
+        topRatio = AspectSettings.clampedSplitTopRatio(try container.decodeIfPresent(CGFloat.self, forKey: .topRatio) ?? 0.5)
     }
 }
 

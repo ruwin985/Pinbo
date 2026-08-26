@@ -8,7 +8,9 @@ final class RecordingViewController: UIViewController {
     private let source = DualCameraSource()
     private let speech = LiveSpeechRecognizer(language: .chinese)
 
+    /// 前摄像头画中画预览容器。
     private var pipView: PiPPreviewView?
+    /// 上下分屏模式中的前摄像头预览容器。
     private var frontSplitPreviewContainer: PreviewLayerView?
 
     private let subtitleLabel = UILabel()
@@ -18,8 +20,14 @@ final class RecordingViewController: UIViewController {
     private let closeButton = UIButton(type: .system)
     private var promptPanel: TeleprompterPanelView?
 
+    /// 录制期间收集的画中画布局关键帧。
     private var pipTrack: [PiPKeyframe] = []
+    /// 录制期间收集的上下分屏布局关键帧。
     private var splitScreenTrack: [SplitScreenKeyframe] = []
+    /// 分屏拖动开始时的上半部分占比。
+    private var splitPanStartTopRatio: CGFloat = 0.5
+    /// 当前分屏上半部分高度约束。
+    private var splitTopHeightConstraint: Constraint?
     private var subtitleTrack: [SubtitleSegment] = []
     private var recordStartTime: Date?
     private var recordingDurationTimer: Timer?
@@ -216,7 +224,7 @@ final class RecordingViewController: UIViewController {
             let dismissKeyboardTap = UITapGestureRecognizer(target: self, action: #selector(dismissPromptKeyboard))
             dismissKeyboardTap.cancelsTouchesInView = false
             container.addGestureRecognizer(dismissKeyboardTap)
-            addSplitOrderGesture(to: container)
+            addSplitGestures(to: container)
             view.insertSubview(container, at: 0)
             container.snp.makeConstraints { make in
                 make.edges.equalToSuperview()
@@ -345,10 +353,13 @@ final class RecordingViewController: UIViewController {
                                     cornerRadius: layout.cornerRadius))
     }
 
+    /// 记录当前上下分屏顺序和显示占比关键帧。
     private func recordSplitScreenKeyframe() {
         guard aspect.isSplitScreenEnabled else { return }
         let t = recordStartTime.map { Date().timeIntervalSince($0) } ?? 0
-        splitScreenTrack.append(SplitScreenKeyframe(time: t, order: aspect.splitOrder))
+        splitScreenTrack.append(SplitScreenKeyframe(time: t,
+                                                    order: aspect.splitOrder,
+                                                    topRatio: aspect.splitTopRatio))
     }
 
     // MARK: - Settings sheets
@@ -414,12 +425,30 @@ final class RecordingViewController: UIViewController {
         promptPanel?.dismissKeyboard()
     }
 
+    /// 长按分屏画面时切换前后摄像头上下顺序。
     @objc private func splitPreviewLongPressed(_ gesture: UILongPressGestureRecognizer) {
         guard aspect.isSplitScreenEnabled, gesture.state == .began else { return }
         aspect.splitOrder.toggle()
         updateSplitPreviewLayout(animated: true)
         recordSplitScreenKeyframe()
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+    }
+
+    /// 单指上下滑动分屏画面时调整上半部分显示占比。
+    @objc private func splitPreviewPanned(_ gesture: UIPanGestureRecognizer) {
+        guard aspect.isSplitScreenEnabled, view.bounds.height > 0 else { return }
+        switch gesture.state {
+        case .began:
+            splitPanStartTopRatio = aspect.splitTopRatio
+        case .changed, .ended:
+            let translationY = gesture.translation(in: view).y
+            let nextRatio = splitPanStartTopRatio + translationY / view.bounds.height
+            aspect.splitTopRatio = AspectSettings.clampedSplitTopRatio(nextRatio)
+            updateSplitTopRatioLayout()
+            recordSplitScreenKeyframe()
+        default:
+            break
+        }
     }
 
     @objc private func aspectTapped() {
@@ -596,6 +625,7 @@ final class RecordingViewController: UIViewController {
         } else {
             frontSplitPreviewContainer?.removeFromSuperview()
             frontSplitPreviewContainer = nil
+            splitTopHeightConstraint = nil
             updatePiPVisibility()
             updateMainPreviewLayoutForFullScreen()
         }
@@ -618,7 +648,7 @@ final class RecordingViewController: UIViewController {
     private func ensureSplitPreviewView() {
         guard frontSplitPreviewContainer == nil, let frontLayer = source.makePiPPreviewLayer() else { return }
         let container = PreviewLayerView(previewLayer: frontLayer, videoGravity: .resizeAspectFill)
-        addSplitOrderGesture(to: container)
+        addSplitGestures(to: container)
         if let mainPreviewContainer {
             view.insertSubview(container, aboveSubview: mainPreviewContainer)
         } else {
@@ -635,13 +665,16 @@ final class RecordingViewController: UIViewController {
         }
     }
 
+    /// 按当前分屏顺序和上半屏占比刷新前后摄像头预览区域。
     private func updateSplitPreviewLayout(animated: Bool) {
         guard let mainPreviewContainer, let frontSplitPreviewContainer else { return }
+        let topHeight = splitTopHeight()
         let animations = {
+            self.splitTopHeightConstraint = nil
             if self.aspect.splitOrder == .frontTop {
                 frontSplitPreviewContainer.snp.remakeConstraints { make in
                     make.top.leading.trailing.equalToSuperview()
-                    make.height.equalToSuperview().multipliedBy(0.5)
+                    self.splitTopHeightConstraint = make.height.equalTo(topHeight).constraint
                 }
                 mainPreviewContainer.snp.remakeConstraints { make in
                     make.leading.trailing.bottom.equalToSuperview()
@@ -650,7 +683,7 @@ final class RecordingViewController: UIViewController {
             } else {
                 mainPreviewContainer.snp.remakeConstraints { make in
                     make.top.leading.trailing.equalToSuperview()
-                    make.height.equalToSuperview().multipliedBy(0.5)
+                    self.splitTopHeightConstraint = make.height.equalTo(topHeight).constraint
                 }
                 frontSplitPreviewContainer.snp.remakeConstraints { make in
                     make.leading.trailing.bottom.equalToSuperview()
@@ -667,16 +700,46 @@ final class RecordingViewController: UIViewController {
         }
     }
 
-    private func addSplitOrderGesture(to preview: UIView) {
+    /// 根据当前屏幕高度计算分屏上半部分高度。
+    private func splitTopHeight() -> CGFloat {
+        guard view.bounds.height > 0 else { return 0 }
+        let ratio = AspectSettings.clampedSplitTopRatio(aspect.splitTopRatio)
+        return view.bounds.height * ratio
+    }
+
+    /// 在屏幕尺寸变化后刷新分屏高度约束。
+    private func updateSplitTopHeightConstraintIfNeeded() {
+        guard aspect.isSplitScreenEnabled else { return }
+        splitTopHeightConstraint?.update(offset: splitTopHeight())
+    }
+
+    /// 仅更新分屏占比对应的高度约束，不重建上下视图约束。
+    private func updateSplitTopRatioLayout() {
+        guard splitTopHeightConstraint != nil else {
+            updateSplitPreviewLayout(animated: false)
+            return
+        }
+        updateSplitTopHeightConstraintIfNeeded()
+        view.layoutIfNeeded()
+        applyMainAspectMask()
+    }
+
+    /// 给分屏预览区域添加长按切换和单指滑动调占比手势。
+    private func addSplitGestures(to preview: UIView) {
         let longPress = UILongPressGestureRecognizer(target: self, action: #selector(splitPreviewLongPressed(_:)))
         longPress.minimumPressDuration = 0.45
         preview.addGestureRecognizer(longPress)
+
+        let pan = UIPanGestureRecognizer(target: self, action: #selector(splitPreviewPanned(_:)))
+        pan.minimumNumberOfTouches = 1
+        pan.maximumNumberOfTouches = 1
+        preview.addGestureRecognizer(pan)
     }
 
     private func readyStatusText() -> String {
         let parameterText = parameterStatusText(for: videoSettings)
         if aspect.isSplitScreenEnabled {
-            return "就绪：\(parameterText)，上下分屏，长按画面切换前后摄位置"
+            return "就绪：\(parameterText)，上下分屏，长按切换位置，单指上下滑动调整占比"
         }
         if aspect.isPiPEnabled {
             return "就绪：\(parameterText)，拖动/双指缩放小窗，点按开始录制"
@@ -713,6 +776,7 @@ final class RecordingViewController: UIViewController {
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
+        updateSplitTopHeightConstraintIfNeeded()
         applyMainAspectMask()
         layoutPromptPanelIfNeeded()
     }
