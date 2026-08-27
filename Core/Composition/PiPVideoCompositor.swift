@@ -37,6 +37,8 @@ struct VideoTrackTransform {
 
 private struct SubtitleRenderKey: Hashable {
     let text: String
+    /// 当前缓存是否包含重点词强调样式。
+    let emphasizesKeywords: Bool
     let canvasWidth: Int
     let canvasHeight: Int
     let centerX: Int
@@ -68,6 +70,8 @@ final class PiPCompositionInstruction: NSObject, AVVideoCompositionInstructionPr
     var totalDuration: Double = 0
     var subtitles: [SubtitleSegment] = []
     var subtitleLayout: SubtitleLayout = SubtitleLayout()
+    /// 是否在字幕中自动以黄色粗体大字号强调重点词语。
+    var emphasizesSubtitleKeywords = false
     // 各轨道方向信息（把帧摆正）
     var mainTransform: VideoTrackTransform?
     var pipTransform: VideoTrackTransform?
@@ -187,7 +191,10 @@ final class PiPVideoCompositor: NSObject, AVVideoCompositing {
             // 字幕
             if let seg = instruction.subtitles.first(where: { time >= $0.startTime && time <= $0.endTime }),
                !seg.text.isEmpty,
-               let text = self.renderSubtitle(seg.text, layout: instruction.subtitleLayout, canvas: canvas) {
+               let text = self.renderSubtitle(seg.text,
+                                              layout: instruction.subtitleLayout,
+                                              canvas: canvas,
+                                              emphasizesKeywords: instruction.emphasizesSubtitleKeywords) {
                 output = text.composited(over: output)
             }
 
@@ -291,9 +298,13 @@ final class PiPVideoCompositor: NSObject, AVVideoCompositing {
         return blend.outputImage ?? image
     }
 
-    private func renderSubtitle(_ text: String, layout: SubtitleLayout, canvas: CGSize) -> CIImage? {
+    private func renderSubtitle(_ text: String,
+                                layout: SubtitleLayout,
+                                canvas: CGSize,
+                                emphasizesKeywords: Bool) -> CIImage? {
         let normalized = normalizedSubtitleLayout(layout)
         let key = SubtitleRenderKey(text: text,
+                                    emphasizesKeywords: emphasizesKeywords,
                                     canvasWidth: Int(canvas.width.rounded()),
                                     canvasHeight: Int(canvas.height.rounded()),
                                     centerX: Int((normalized.center.x * 10_000).rounded()),
@@ -305,11 +316,16 @@ final class PiPVideoCompositor: NSObject, AVVideoCompositing {
         let inset = max(24, canvas.width * 0.04)
         let maxWidth = min(normalized.maxWidth * canvas.width, canvas.width - inset * 2)
         let fontSize = max(28, min(canvas.width, canvas.height) * 0.06 * normalized.fontScale)
-        let font = CTFontCreateWithName("HelveticaNeue-Bold" as CFString, fontSize, nil)
+        let fontName = emphasizesKeywords ? "HelveticaNeue-Medium" : "HelveticaNeue-Bold"
+        let font = CTFontCreateWithName(fontName as CFString, fontSize, nil)
         let padding = max(8, fontSize * 0.2)
         let textWidth = max(1, maxWidth - padding * 2)
         let paragraph = makeSubtitleParagraphStyle()
-        let measureText = makeSubtitleString(text, font: font, paragraph: paragraph, strokeOnly: false)
+        let measureText = makeSubtitleString(text,
+                                             font: font,
+                                             paragraph: paragraph,
+                                             strokeOnly: false,
+                                             emphasizesKeywords: emphasizesKeywords)
         let framesetter = CTFramesetterCreateWithAttributedString(measureText)
         let fitting = CTFramesetterSuggestFrameSizeWithConstraints(framesetter,
                                                                    CFRange(location: 0, length: measureText.length),
@@ -324,7 +340,8 @@ final class PiPVideoCompositor: NSObject, AVVideoCompositing {
                                               font: font,
                                               paragraph: paragraph,
                                               textRect: CGRect(x: padding, y: padding, width: textWidth, height: textHeight),
-                                              size: renderSize) else { return nil }
+                                              size: renderSize,
+                                              emphasizesKeywords: emphasizesKeywords) else { return nil }
         let ci = CIImage(cgImage: image)
         let frame = subtitleFrame(size: renderSize, layout: normalized, canvas: canvas)
         let y = canvas.height - frame.origin.y - frame.height
@@ -354,7 +371,8 @@ final class PiPVideoCompositor: NSObject, AVVideoCompositing {
     private func makeSubtitleString(_ text: String,
                                     font: CTFont,
                                     paragraph: CTParagraphStyle,
-                                    strokeOnly: Bool) -> NSAttributedString {
+                                    strokeOnly: Bool,
+                                    emphasizesKeywords: Bool) -> NSAttributedString {
         let strokeColor = CGColor(red: 0, green: 0, blue: 0, alpha: 1)
         let fillColor = CGColor(red: 1, green: 1, blue: 1, alpha: 1)
         var attributes: [NSAttributedString.Key: Any] = [
@@ -366,14 +384,27 @@ final class PiPVideoCompositor: NSObject, AVVideoCompositing {
             attributes[kCTStrokeColorAttributeName as NSAttributedString.Key] = strokeColor
             attributes[kCTStrokeWidthAttributeName as NSAttributedString.Key] = 5.0
         }
-        return NSAttributedString(string: text, attributes: attributes)
+        let attributed = NSMutableAttributedString(string: text, attributes: attributes)
+        guard emphasizesKeywords else { return attributed }
+
+        let emphasisFont = CTFontCreateWithName("HelveticaNeue-Bold" as CFString, CTFontGetSize(font) + 5, nil)
+        let emphasisColor = CGColor(red: 1, green: 0.82, blue: 0.08, alpha: 1)
+        SubtitleEmphasisDetector.ranges(in: text).forEach { range in
+            attributed.addAttributes([
+                kCTFontAttributeName as NSAttributedString.Key: emphasisFont,
+                kCTForegroundColorAttributeName as NSAttributedString.Key: emphasisColor,
+                .baselineOffset: -1.5
+            ], range: range)
+        }
+        return attributed
     }
 
     private func renderSubtitleImage(_ text: String,
                                      font: CTFont,
                                      paragraph: CTParagraphStyle,
                                      textRect: CGRect,
-                                     size: CGSize) -> CGImage? {
+                                     size: CGSize,
+                                     emphasizesKeywords: Bool) -> CGImage? {
         let width = max(1, Int(size.width.rounded(.up)))
         let height = max(1, Int(size.height.rounded(.up)))
         let colorSpace = CGColorSpaceCreateDeviceRGB()
@@ -389,8 +420,20 @@ final class PiPVideoCompositor: NSObject, AVVideoCompositing {
         context.setAllowsAntialiasing(true)
         context.setShouldAntialias(true)
         context.setShadow(offset: CGSize(width: 0, height: 2), blur: 6, color: CGColor(red: 0, green: 0, blue: 0, alpha: 0.9))
-        drawSubtitle(text, font: font, paragraph: paragraph, rect: textRect, in: context, strokeOnly: true)
-        drawSubtitle(text, font: font, paragraph: paragraph, rect: textRect, in: context, strokeOnly: false)
+        drawSubtitle(text,
+                     font: font,
+                     paragraph: paragraph,
+                     rect: textRect,
+                     in: context,
+                     strokeOnly: true,
+                     emphasizesKeywords: emphasizesKeywords)
+        drawSubtitle(text,
+                     font: font,
+                     paragraph: paragraph,
+                     rect: textRect,
+                     in: context,
+                     strokeOnly: false,
+                     emphasizesKeywords: emphasizesKeywords)
         return context.makeImage()
     }
 
@@ -399,10 +442,15 @@ final class PiPVideoCompositor: NSObject, AVVideoCompositing {
                               paragraph: CTParagraphStyle,
                               rect: CGRect,
                               in context: CGContext,
-                              strokeOnly: Bool) {
+                              strokeOnly: Bool,
+                              emphasizesKeywords: Bool) {
         let path = CGMutablePath()
         path.addRect(rect)
-        let attributed = makeSubtitleString(text, font: font, paragraph: paragraph, strokeOnly: strokeOnly)
+        let attributed = makeSubtitleString(text,
+                                            font: font,
+                                            paragraph: paragraph,
+                                            strokeOnly: strokeOnly,
+                                            emphasizesKeywords: emphasizesKeywords)
         let framesetter = CTFramesetterCreateWithAttributedString(attributed)
         let frame = CTFramesetterCreateFrame(framesetter, CFRange(location: 0, length: attributed.length), path, nil)
         CTFrameDraw(frame, context)

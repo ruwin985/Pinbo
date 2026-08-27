@@ -99,6 +99,8 @@ public struct RecordingProject: Codable, Equatable {
     public var splitScreenTrack: [SplitScreenKeyframe]
     public var subtitleTrack: [SubtitleSegment]
     public var subtitleLayout: SubtitleLayout
+    /// 是否在字幕中自动以黄色粗体大字号强调重点词语。
+    public var emphasizesSubtitleKeywords: Bool
     /// 是否为草稿。
     public var isDraft: Bool
     /// 大窗/小窗比例与小窗圆角设置。
@@ -120,6 +122,7 @@ public struct RecordingProject: Codable, Equatable {
         splitScreenTrack: [SplitScreenKeyframe] = [],
         subtitleTrack: [SubtitleSegment] = [],
         subtitleLayout: SubtitleLayout = SubtitleLayout(),
+        emphasizesSubtitleKeywords: Bool = false,
         isDraft: Bool = false,
         aspect: AspectSettings = AspectSettings(),
         sourceKind: RecordingSourceKind = .screen,
@@ -135,6 +138,7 @@ public struct RecordingProject: Codable, Equatable {
         self.splitScreenTrack = splitScreenTrack
         self.subtitleTrack = subtitleTrack
         self.subtitleLayout = subtitleLayout
+        self.emphasizesSubtitleKeywords = emphasizesSubtitleKeywords
         self.isDraft = isDraft
         self.aspect = aspect
         self.sourceKind = sourceKind
@@ -152,6 +156,7 @@ public struct RecordingProject: Codable, Equatable {
         case splitScreenTrack
         case subtitleTrack
         case subtitleLayout
+        case emphasizesSubtitleKeywords
         case isDraft
         case aspect
         case sourceKind
@@ -172,6 +177,7 @@ public struct RecordingProject: Codable, Equatable {
         splitScreenTrack = decodedSplitScreenTrack
         subtitleTrack = try container.decode([SubtitleSegment].self, forKey: .subtitleTrack)
         subtitleLayout = try container.decodeIfPresent(SubtitleLayout.self, forKey: .subtitleLayout) ?? SubtitleLayout()
+        emphasizesSubtitleKeywords = try container.decodeIfPresent(Bool.self, forKey: .emphasizesSubtitleKeywords) ?? false
         isDraft = try container.decode(Bool.self, forKey: .isDraft)
         let decodedAspect = try container.decodeIfPresent(AspectSettings.self, forKey: .aspect) ?? AspectSettings()
         aspect = decodedAspect
@@ -195,6 +201,7 @@ public struct RecordingProject: Codable, Equatable {
         try container.encode(splitScreenTrack, forKey: .splitScreenTrack)
         try container.encode(subtitleTrack, forKey: .subtitleTrack)
         try container.encode(subtitleLayout, forKey: .subtitleLayout)
+        try container.encode(emphasizesSubtitleKeywords, forKey: .emphasizesSubtitleKeywords)
         try container.encode(isDraft, forKey: .isDraft)
         try container.encode(aspect, forKey: .aspect)
         try container.encode(sourceKind, forKey: .sourceKind)

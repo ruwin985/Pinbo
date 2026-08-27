@@ -1,4 +1,5 @@
 import Foundation
+import NaturalLanguage
 import Speech
 
 /// 把语音识别结果按句子断句，拆成与视频时长一一对应的字幕分段。
@@ -99,6 +100,26 @@ public enum SubtitleSegmenter {
         }
     }
 
+    /// 从累计识别文本中提取当前应该显示的一句话，并限制最大显示字符数。
+    public static func currentDisplaySentence(from text: String, maxCharacters: Int = 36) -> String {
+        var currentSentence = ""
+        var latestCompletedSentence = ""
+        for character in text {
+            currentSentence.append(character)
+            if sentenceEndChars.contains(character) {
+                latestCompletedSentence = currentSentence
+                currentSentence = ""
+            }
+        }
+
+        let preferredSentence = currentSentence.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? latestCompletedSentence
+            : currentSentence
+        let trimmedSentence = preferredSentence.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmedSentence.count > maxCharacters else { return trimmedSentence }
+        return String(trimmedSentence.suffix(maxCharacters))
+    }
+
     private static func splitBySentenceEnd(_ text: String) -> [String] {
         var pieces: [String] = []
         var current = ""
@@ -124,5 +145,142 @@ public enum SubtitleSegmenter {
         guard character.unicodeScalars.count == 1,
               let scalar = character.unicodeScalars.first else { return false }
         return scalar.value < 128 && CharacterSet.alphanumerics.contains(scalar)
+    }
+}
+
+/// 从当前字幕中挑选适合强调显示的重点词语范围。
+public enum SubtitleEmphasisDetector {
+
+    /// 中文口语中不适合作为重点词展示的高频虚词。
+    private static let chineseStopWords: Set<String> = [
+        "一个", "一些", "这个", "那个", "这些", "那些", "我们", "你们", "他们", "它们",
+        "就是", "还是", "可以", "可能", "然后", "因为", "所以", "但是", "如果", "已经",
+        "正在", "进行", "需要", "觉得", "其实", "比较", "非常", "特别", "这里", "那里"
+    ]
+
+    /// 英文口语中不适合作为重点词展示的高频虚词。
+    private static let englishStopWords: Set<String> = [
+        "a", "an", "and", "are", "as", "at", "be", "but", "by", "for", "from", "has",
+        "have", "he", "her", "his", "i", "if", "in", "is", "it", "its", "me", "my",
+        "of", "on", "or", "our", "she", "so", "that", "the", "their", "them", "they",
+        "this", "to", "was", "we", "were", "will", "with", "you", "your"
+    ]
+
+    /// 返回字幕中最多三个重点词范围，范围以 UTF-16 为基准，可直接用于富文本属性。
+    public static func ranges(in text: String) -> [NSRange] {
+        let fullRange = text.startIndex..<text.endIndex
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return [] }
+
+        var scores: [NSRange: Int] = [:]
+        collectPatternCandidates(in: text, scores: &scores)
+        collectLinguisticCandidates(in: text, range: fullRange, scores: &scores)
+        collectNameCandidates(in: text, range: fullRange, scores: &scores)
+
+        let maximumCount: Int
+        switch text.count {
+        case ...10: maximumCount = 1
+        case ...24: maximumCount = 2
+        default: maximumCount = 3
+        }
+
+        let ranked = scores.sorted { left, right in
+            if left.value == right.value {
+                if left.key.length == right.key.length {
+                    return left.key.location < right.key.location
+                }
+                return left.key.length > right.key.length
+            }
+            return left.value > right.value
+        }
+
+        var selected: [NSRange] = []
+        for candidate in ranked {
+            guard !selected.contains(where: { NSIntersectionRange($0, candidate.key).length > 0 }) else { continue }
+            selected.append(candidate.key)
+            if selected.count == maximumCount { break }
+        }
+        return selected.sorted { $0.location < $1.location }
+    }
+
+    /// 收集数字、百分比、话题词和较长英文词等天然重点内容。
+    private static func collectPatternCandidates(in text: String, scores: inout [NSRange: Int]) {
+        let pattern = #"(?:[#@][\p{L}\p{N}_]+)|(?:\d+(?:[.,]\d+)?(?:%|[A-Za-z]+)?)|(?:[A-Za-z][A-Za-z0-9_-]{2,})"#
+        guard let expression = try? NSRegularExpression(pattern: pattern) else { return }
+        let fullRange = NSRange(text.startIndex..<text.endIndex, in: text)
+        expression.enumerateMatches(in: text, range: fullRange) { match, _, _ in
+            guard let range = match?.range else { return }
+            let token = (text as NSString).substring(with: range)
+            let patternScore: Int
+            if token.hasPrefix("#") || token.hasPrefix("@") {
+                patternScore = 110
+            } else if token.unicodeScalars.contains(where: { CharacterSet.decimalDigits.contains($0) }) {
+                patternScore = 95
+            } else if range.location > 0, token.first?.isUppercase == true {
+                patternScore = 72
+            } else {
+                patternScore = 24
+            }
+            scores[range] = max(scores[range] ?? 0, patternScore + min(range.length, 12))
+        }
+    }
+
+    /// 使用系统自然语言词性分析收集名词、动词、形容词、数字和成语候选。
+    private static func collectLinguisticCandidates(in text: String,
+                                                    range: Range<String.Index>,
+                                                    scores: inout [NSRange: Int]) {
+        let tagger = NLTagger(tagSchemes: [.lexicalClass])
+        tagger.string = text
+        if let language = NLLanguageRecognizer.dominantLanguage(for: text) {
+            tagger.setLanguage(language, range: range)
+        }
+        let options: NLTagger.Options = [.omitWhitespace, .omitPunctuation]
+        tagger.enumerateTags(in: range, unit: .word, scheme: .lexicalClass, options: options) { tag, tokenRange in
+            let token = String(text[tokenRange])
+            guard isMeaningful(token) else { return true }
+            guard let baseScore = score(for: tag) else { return true }
+            let nsRange = NSRange(tokenRange, in: text)
+            scores[nsRange] = max(scores[nsRange] ?? 0, baseScore + min(token.count, 8))
+            return true
+        }
+    }
+
+    /// 使用系统实体识别提高人名、地名和组织名称的强调优先级。
+    private static func collectNameCandidates(in text: String,
+                                              range: Range<String.Index>,
+                                              scores: inout [NSRange: Int]) {
+        let tagger = NLTagger(tagSchemes: [.nameType])
+        tagger.string = text
+        if let language = NLLanguageRecognizer.dominantLanguage(for: text) {
+            tagger.setLanguage(language, range: range)
+        }
+        let options: NLTagger.Options = [.omitWhitespace, .omitPunctuation, .joinNames]
+        tagger.enumerateTags(in: range, unit: .word, scheme: .nameType, options: options) { tag, tokenRange in
+            guard tag == .personalName || tag == .placeName || tag == .organizationName else { return true }
+            let nsRange = NSRange(tokenRange, in: text)
+            scores[nsRange] = max(scores[nsRange] ?? 0, 120 + min(nsRange.length, 16))
+            return true
+        }
+    }
+
+    /// 判断候选词是否包含有效内容，并过滤常见中英文虚词。
+    private static func isMeaningful(_ token: String) -> Bool {
+        let normalized = token.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalized.isEmpty,
+              !chineseStopWords.contains(normalized),
+              !englishStopWords.contains(normalized) else { return false }
+        return normalized.unicodeScalars.contains { CharacterSet.alphanumerics.contains($0) }
+    }
+
+    /// 根据词性返回强调优先级，分值越高越优先显示。
+    private static func score(for tag: NLTag?) -> Int? {
+        switch tag {
+        case .number: return 85
+        case .idiom: return 72
+        case .noun: return 58
+        case .adjective: return 48
+        case .verb: return 42
+        case .otherWord: return 28
+        default: return nil
+        }
     }
 }

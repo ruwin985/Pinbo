@@ -67,7 +67,7 @@ struct ScreenCaptureTarget: Identifiable, Equatable {
     var pixelSize: CGSize {
         switch kind {
         case .display(let display):
-            return CGSize(width: max(1, display.width), height: max(1, display.height))
+            return Self.maximumDisplayPixelSize(for: display.displayID)
         case .window(let window):
             let scale = ScreenCaptureCoordinateMapper.screen(for: window)?.backingScaleFactor
                 ?? NSScreen.main?.backingScaleFactor
@@ -75,6 +75,28 @@ struct ScreenCaptureTarget: Identifiable, Equatable {
             return CGSize(width: max(1, window.frame.width * scale),
                           height: max(1, window.frame.height * scale))
         }
+    }
+
+    /// 读取显示器所有可用模式中的最大物理像素尺寸。
+    ///
+    /// Retina 屏幕下，CGDisplayPixelsWide/High 可能只返回当前缩放模式的逻辑像素，
+    /// 例如 `1512×982`；录制参数需要使用面板支持的最大模式，例如 `3024×1964`。
+    private static func maximumDisplayPixelSize(for displayID: CGDirectDisplayID) -> CGSize {
+        let modes = (CGDisplayCopyAllDisplayModes(displayID, nil) as? [CGDisplayMode]) ?? []
+        let maximumMode = modes.max { lhs, rhs in
+            let lhsPixelCount = lhs.pixelWidth * lhs.pixelHeight
+            let rhsPixelCount = rhs.pixelWidth * rhs.pixelHeight
+            if lhsPixelCount == rhsPixelCount {
+                return max(lhs.pixelWidth, lhs.pixelHeight) < max(rhs.pixelWidth, rhs.pixelHeight)
+            }
+            return lhsPixelCount < rhsPixelCount
+        }
+        if let maximumMode {
+            return CGSize(width: max(1, maximumMode.pixelWidth),
+                          height: max(1, maximumMode.pixelHeight))
+        }
+        return CGSize(width: max(1, CGDisplayPixelsWide(displayID)),
+                      height: max(1, CGDisplayPixelsHigh(displayID)))
     }
 }
 

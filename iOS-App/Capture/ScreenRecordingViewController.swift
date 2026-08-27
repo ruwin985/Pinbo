@@ -831,7 +831,7 @@ final class ScreenRecordingViewController: UIViewController {
             if isFrontCameraPaused {
                 return isSystemRecordingActive ? "系统录屏中，前摄悬浮窗已暂停" : "前摄悬浮窗已暂停"
             }
-            return isSystemRecordingActive ? "系统录屏中，前摄悬浮窗已开启，可点暂停/快退/快进" : "前摄悬浮窗已开启，可点暂停/快退/快进"
+            return isSystemRecordingActive ? "系统录屏中，前摄悬浮窗已开启" : "前摄悬浮窗已开启"
         }
         return isSystemRecordingActive ? "系统录屏中，停止后自动保存到首页" : "准备就绪：点中间按钮后选择开始直播"
     }

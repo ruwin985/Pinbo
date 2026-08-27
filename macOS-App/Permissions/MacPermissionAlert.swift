@@ -1,6 +1,8 @@
 import AppKit
 
+/// 展示权限提示并跳转到对应的系统设置页面。
 final class MacPermissionAlert {
+    /// 应用可能请求的系统权限类型。
     enum PermissionKind {
         case screenRecording
         case camera
@@ -43,6 +45,13 @@ final class MacPermissionAlert {
         }
     }
 
+    /// 直接打开指定权限的系统设置页面。
+    static func openSettings(kind: PermissionKind) {
+        guard let url = kind.settingsURL else { return }
+        NSWorkspace.shared.open(url)
+    }
+
+    /// 展示权限说明弹窗，并允许用户跳转系统设置。
     static func show(kind: PermissionKind, in window: NSWindow?) {
         let alert = NSAlert()
         alert.messageText = kind.title
@@ -52,8 +61,8 @@ final class MacPermissionAlert {
         alert.addButton(withTitle: "取消")
 
         let completion: (NSApplication.ModalResponse) -> Void = { response in
-            guard response == .alertFirstButtonReturn, let url = kind.settingsURL else { return }
-            NSWorkspace.shared.open(url)
+            guard response == .alertFirstButtonReturn else { return }
+            openSettings(kind: kind)
         }
 
         if let window {

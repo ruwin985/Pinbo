@@ -288,6 +288,7 @@ final class EditorViewController: UIViewController {
             applyMediaDuration(built.composition.duration.seconds)
             item = AVPlayerItem(asset: built.composition)
             item.videoComposition = built.videoComposition
+            item.audioMix = built.audioMix
         } catch {
             showAlert("预览失败", (error as? VideoCompositor.CompositorError)?.errorDescription ?? error.localizedDescription)
             return

@@ -24,8 +24,10 @@ public final class VideoCompositor {
         }
     }
 
-    /// 导出长边。双路视频 + 字幕合成时用 1280 控制峰值内存，避免保存时被系统杀掉。
+    /// 导出视频的目标长边，默认保持 iOS 端原有的 1280 输出策略。
     public var exportLongEdge: CGFloat = 1280
+    /// 导出视频的目标帧速率，默认保持 iOS 端原有的 24fps 策略。
+    public var exportFrameRate: Int = 24
 
     public init() {}
 
@@ -33,6 +35,8 @@ public final class VideoCompositor {
     public struct Built {
         public let composition: AVMutableComposition
         public let videoComposition: AVMutableVideoComposition
+        /// 多路录音存在时用于同步播放和导出的混音参数。
+        public let audioMix: AVAudioMix?
     }
 
     /// 根据项目数据构建 composition + videoComposition。
@@ -66,11 +70,25 @@ public final class VideoCompositor {
         let outputRange = CMTimeRange(start: .zero, duration: duration)
 
         try compMainVideoTrack.insertTimeRange(sourceRange, of: mainVideoTrack, at: .zero)
-        if let mainAudio = mainAsset.tracks(withMediaType: .audio).first,
-           let compAudio = composition.addMutableTrack(
-            withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) {
-            try compAudio.insertTimeRange(sourceRange, of: mainAudio, at: .zero)
+        let sourceAudioTracks = mainAsset.tracks(withMediaType: .audio)
+        var audioMixParameters: [AVAudioMixInputParameters] = []
+        for (index, mainAudio) in sourceAudioTracks.enumerated() {
+            guard let compAudio = composition.addMutableTrack(
+                withMediaType: .audio,
+                preferredTrackID: kCMPersistentTrackID_Invalid) else { continue }
+            do {
+                try compAudio.insertTimeRange(sourceRange, of: mainAudio, at: .zero)
+                let parameter = AVMutableAudioMixInputParameters(track: compAudio)
+                let volume: Float = sourceAudioTracks.count > 1 && index == 0 ? 0.8 : 1
+                parameter.setVolume(volume, at: .zero)
+                audioMixParameters.append(parameter)
+            } catch {
+                composition.removeTrack(compAudio)
+            }
         }
+        let audioMix: AVAudioMix? = audioMixParameters.count > 1
+            ? makeAudioMix(parameters: audioMixParameters)
+            : nil
 
         // 画中画轨道
         var pipSourceTrack: AVAssetTrack?
@@ -97,7 +115,8 @@ public final class VideoCompositor {
 
         let videoComposition = AVMutableVideoComposition()
         videoComposition.renderSize = canvas
-        videoComposition.frameDuration = CMTime(value: 1, timescale: 24)
+        videoComposition.frameDuration = CMTime(value: 1,
+                                                timescale: CMTimeScale(max(1, exportFrameRate)))
         videoComposition.customVideoCompositorClass = PiPVideoCompositor.self
 
         let instruction = PiPCompositionInstruction(timeRange: outputRange,
@@ -119,6 +138,7 @@ public final class VideoCompositor {
         instruction.totalDuration = duration.seconds
         instruction.subtitles = includeSubtitles ? shifted(project.subtitleTrack, by: startSeconds, duration: duration.seconds) : []
         instruction.subtitleLayout = project.subtitleLayout
+        instruction.emphasizesSubtitleKeywords = project.emphasizesSubtitleKeywords
         // 传入各轨道方向信息，供合成器把帧摆正（修复方向被旋转）
         instruction.mainTransform = VideoTrackTransform(track: mainVideoTrack)
         if let pip = pipSourceTrack {
@@ -126,7 +146,9 @@ public final class VideoCompositor {
         }
         videoComposition.instructions = [instruction]
 
-        return Built(composition: composition, videoComposition: videoComposition)
+        return Built(composition: composition,
+                     videoComposition: videoComposition,
+                     audioMix: audioMix)
     }
 
     public func export(project: RecordingProject,
@@ -149,10 +171,11 @@ public final class VideoCompositor {
         try? FileManager.default.removeItem(at: outURL)
 
         guard let exporter = AVAssetExportSession(asset: built.composition,
-                                                  presetName: AVAssetExportPreset1280x720) else {
+                                                  presetName: exportPresetName(for: built.videoComposition.renderSize)) else {
             completion(.failure(CompositorError.exportSessionFailed("无法创建导出会话"))); return
         }
         exporter.videoComposition = built.videoComposition
+        exporter.audioMix = built.audioMix
         exporter.outputURL = outURL
         exporter.outputFileType = .mp4
         exporter.shouldOptimizeForNetworkUse = true
@@ -168,6 +191,30 @@ public final class VideoCompositor {
                 }
             }
         }
+    }
+
+    /// 使用已经绑定到合成轨道的参数创建多路声音混音配置。
+    private func makeAudioMix(parameters: [AVAudioMixInputParameters]) -> AVAudioMix {
+        let audioMix = AVMutableAudioMix()
+        audioMix.inputParameters = parameters
+        return audioMix
+    }
+
+    /// 根据目标长边选择不会主动压低清晰度的导出预设。
+    /// 根据目标画布和长边选择导出预设，非 16:9 画布使用最高质量预设避免被强制裁成 16:9。
+    private func exportPresetName(for renderSize: CGSize) -> String {
+        let ratio = renderSize.width / max(renderSize.height, 1)
+        guard abs(ratio - (16.0 / 9.0)) < 0.01 else {
+            return AVAssetExportPresetHighestQuality
+        }
+        let actualLongEdge = max(renderSize.width, renderSize.height)
+        if actualLongEdge >= 3840 {
+            return AVAssetExportPreset3840x2160
+        }
+        if actualLongEdge >= 1920 {
+            return AVAssetExportPreset1920x1080
+        }
+        return AVAssetExportPresetHighestQuality
     }
 
     private func shifted(_ keyframes: [PiPKeyframe], by offset: TimeInterval) -> [PiPKeyframe] {
@@ -258,8 +305,12 @@ public final class VideoCompositor {
     private static func renderCanvasSize(for track: AVAssetTrack,
                                          project: RecordingProject,
                                          longEdge: CGFloat) -> CGSize {
+        let sourceLongEdge = sourceLongEdge(for: track)
+        let effectiveLongEdge = project.sourceKind == .screen
+            ? min(longEdge, sourceLongEdge)
+            : longEdge
         guard project.aspect.main.isDefault || project.aspect.isSplitScreenEnabled else {
-            return project.aspect.main.canvasSize(longEdge: longEdge)
+            return project.aspect.main.canvasSize(longEdge: effectiveLongEdge)
         }
         switch project.sourceKind {
         case .camera:
@@ -271,8 +322,14 @@ public final class VideoCompositor {
             }
             return AspectRatio.default.canvasSize(longEdge: longEdge)
         case .screen:
-            return sourceCanvasSize(for: track, longEdge: longEdge)
+            return sourceCanvasSize(for: track, longEdge: effectiveLongEdge)
         }
+    }
+
+    /// 返回视频轨道经过方向变换后的实际长边像素数。
+    private static func sourceLongEdge(for track: AVAssetTrack) -> CGFloat {
+        let transformedSize = track.naturalSize.applying(track.preferredTransform)
+        return max(abs(transformedSize.width), abs(transformedSize.height))
     }
 
     private static func sourceCanvasSize(for track: AVAssetTrack, longEdge: CGFloat) -> CGSize {
@@ -281,8 +338,9 @@ public final class VideoCompositor {
         guard sourceSize.width > 0, sourceSize.height > 0 else {
             return AspectRatio.default.canvasSize(longEdge: longEdge)
         }
+        let sourceLongEdge = max(sourceSize.width, sourceSize.height)
         return canvasSize(forAspectRatio: sourceSize.width / sourceSize.height,
-                          longEdge: longEdge)
+                          longEdge: min(longEdge, sourceLongEdge))
     }
 
     private static func canvasSize(forAspectRatio ratio: CGFloat, longEdge: CGFloat) -> CGSize {
