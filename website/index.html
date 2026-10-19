@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="创作者智能中心：拍呗 Pinbo、CleanMac 与 PictureAI。">
+  <meta name="description" content="创作者智能中心：拍呗 Pinbo、发多多 MutibleLite、APPStatus、CleanMac 与 PictureAI。">
   <meta name="theme-color" content="#0b0d14">
   <title>创作者智能中心</title>
   <link rel="icon" type="image/png" href="/pinbo/assets/app-icon.png">
@@ -17,6 +17,8 @@
       --text: #fff;
       --muted: rgba(255, 255, 255, 0.68);
       --pinbo: #ff3d12;
+      --mutiblelite: #ff2442;
+      --appstatus: #2563eb;
       --cleanmac: #32d074;
       --pictureai: #ff7a22;
     }
@@ -171,13 +173,15 @@
 
     .products {
       display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
       gap: 22px;
       margin-top: 56px;
     }
 
     .product-card {
       position: relative;
+      display: flex;
+      align-items: stretch;
       min-height: 330px;
       overflow: hidden;
       border-radius: 34px;
@@ -209,6 +213,14 @@
       background: var(--pinbo);
     }
 
+    .product-card.mutiblelite::before {
+      background: var(--mutiblelite);
+    }
+
+    .product-card.appstatus::before {
+      background: var(--appstatus);
+    }
+
     .product-card.cleanmac::before {
       background: var(--cleanmac);
     }
@@ -220,7 +232,9 @@
     .card-content {
       position: relative;
       display: flex;
+      flex: 1;
       flex-direction: column;
+      width: 100%;
       min-height: 270px;
       text-align: left;
     }
@@ -332,6 +346,8 @@
       </a>
       <nav class="product-nav" aria-label="产品导航">
         <a class="nav-item" href="/pinbo/"><img src="/pinbo/assets/app-icon.png" alt="">拍呗 Pinbo</a>
+        <a class="nav-item" href="/MutibleLite/"><img src="/MutibleLite/favicon.svg" alt="">发多多</a>
+        <a class="nav-item" href="/APPStatus/"><img src="/APPStatus/app-icon.svg" alt="">APPStatus</a>
         <a class="nav-item" href="/CleanMac/"><img src="/CleanMac/images/cleanmac-icon.png" alt="">CleanMac</a>
         <a class="nav-item" href="/PictureAI/"><img src="/PictureAI/assets/pictureai-icon.svg" alt="">PictureAI</a>
       </nav>
@@ -342,7 +358,7 @@
     <section class="shell hero" aria-labelledby="main-title">
       <p class="eyebrow">PRODUCTS</p>
       <h1 id="main-title">选择产品，继续开始。</h1>
-      <p class="lead">这里汇总当前项目产品「拍呗 Pinbo」、CleanMac 和 PictureAI。点击顶部导航或下方产品卡片即可进入对应网站。</p>
+      <p class="lead">这里汇总当前项目产品「拍呗 Pinbo」、发多多 MutibleLite、APPStatus、CleanMac 和 PictureAI。点击顶部导航或下方产品卡片即可进入对应网站。</p>
 
       <div class="products">
         <a class="product-card pinbo" href="/pinbo/" aria-label="打开拍呗 Pinbo 产品页">
@@ -351,6 +367,24 @@
             <h2>拍呗 Pinbo</h2>
             <p>面向短视频创作者的录制工作台，支持前后双摄、屏幕录制、实时字幕与快速导出。</p>
             <span class="open-link">打开 Pinbo <span aria-hidden="true">→</span></span>
+          </div>
+        </a>
+
+        <a class="product-card mutiblelite" href="/MutibleLite/" aria-label="打开发多多 MutibleLite 产品页">
+          <div class="card-content">
+            <img class="product-icon" src="/MutibleLite/favicon.svg" alt="发多多 MutibleLite 图标">
+            <h2>发多多</h2>
+            <p>本地优先的多平台内容适配工具，帮助短视频素材完成检查、改版、封面与分平台交付。</p>
+            <span class="open-link">打开发多多 <span aria-hidden="true">→</span></span>
+          </div>
+        </a>
+
+        <a class="product-card appstatus" href="/APPStatus/" aria-label="打开 APPStatus 产品页">
+          <div class="card-content">
+            <img class="product-icon" src="/APPStatus/app-icon.svg" alt="APPStatus 图标">
+            <h2>APPStatus</h2>
+            <p>面向独立开发者的 App Store 发行工作台，集中管理上架清单、材料准备、发布跟踪和数据复盘。</p>
+            <span class="open-link">打开 APPStatus <span aria-hidden="true">→</span></span>
           </div>
         </a>
 
